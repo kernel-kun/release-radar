@@ -1,0 +1,45 @@
+# docs-deadline-tracker configuration
+# Copy to config.yaml and edit. config.yaml is git-ignored.
+
+# The project board + saved view you look at in the browser.
+# GraphQL cannot query a saved view directly, so we read every item and
+# filter client-side (by the Docs Assignee list below). The view number is
+# kept only for reference / opening the board.
+project_url: https://github.com/orgs/kubernetes/projects/264/views/3
+
+# Where docs (placeholder) PRs must land.
+website_repo: kubernetes/website
+dest_branch: dev-1.37
+
+# Where KEP tracking issues live (board item content).
+enhancements_repo: kubernetes/enhancements
+
+# Custom field names on the board. Exact, case-sensitive.
+# Confirm against the live board: `gh project field-list 264 --owner kubernetes`
+fields:
+  docs_assignee: Docs Assignee
+  docs_pr: Docs PR
+  doc_status: Doc Status
+
+# KEPs whose 'Doc Status' field equals this value need no docs — they're shown
+# as 'no docs needed' and skipped entirely (no PR is expected or looked for).
+no_docs_status: "No docs needed"
+
+# Docs shadows/leads for the current cycle. A KEP row is in scope only if its
+# 'Docs Assignee' field value matches one of these logins (or display names).
+docs_assignees:
+  - kernel-kun
+  # - some-shadow
+
+# Which deadline window's rules to run. Only 'placeholder_pr' is implemented.
+# Add new rule functions in logic.py and register them in DEADLINE_RULES.
+deadline: placeholder_pr
+
+# Release cycle window (ISO dates). PRs opened outside this range are treated
+# as prior-cycle noise and NOT surfaced as candidates — a KEP whose only linked
+# website PR is an old dev-1.27 one falls back to 'no PR' instead of 'review PR'.
+# A PR opened *inside* the window but targeting the wrong base branch is flagged
+# as a review candidate (author may have picked the wrong dest branch).
+# Confirm against the v1.37 release schedule. Leave blank to disable a bound.
+cycle_start: "2026-05-01"
+cycle_end: "2026-08-31"

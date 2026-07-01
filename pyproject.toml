@@ -1,0 +1,23 @@
+[project]
+name = "release-radar"
+version = "0.1.0"
+description = "Track Kubernetes release project-board views against per-deadline rules (docs placeholder PRs today)"
+readme = "README.md"
+authors = [
+    { name = "kernel-kun", email = "78614901+kernel-kun@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+release-radar = "release_radar:main"
+
+[build-system]
+requires = ["uv_build>=0.11.24,<0.12.0"]
+build-backend = "uv_build"
