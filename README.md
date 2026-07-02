@@ -58,7 +58,7 @@ uv run release-radar --check    # logic self-test, no network
 
 TUI keys: `r` rescan · `u` queue/unqueue a board write · `a` apply queued writes ·
 `d` dismiss (the candidate PR on a `bad_pr` row, else the whole KEP; remembered) ·
-`o` open in browser · `q` quit.
+`o` open the KEP · `O` open its PR (accepted or flagged candidate) · `q` quit.
 
 > On a corporate network with TLS interception, prefix `uv` commands with
 > `--system-certs` (e.g. `uv run --system-certs …`).

@@ -6,7 +6,8 @@ Keys:
   r  rescan            u  toggle 'write to board' for the selected NEEDS_BOARD row
   d  dismiss: on a "review PR" row drops just that candidate PR (KEP stays
      tracked); on any other row hides the whole KEP. Remembered in state.
-  a  apply queued board writes      o  open selected KEP/PR in browser
+  a  apply queued board writes
+  o  open the KEP issue          O  open its PR (accepted or flagged candidate)
   q  quit (state is saved on exit)
 """
 from __future__ import annotations
@@ -52,7 +53,8 @@ class TrackerApp(App):
         Binding("u", "toggle_write", "Queue/unqueue write"),
         Binding("d", "dismiss", "Dismiss (PR on review rows, else KEP)"),
         Binding("a", "apply", "Apply writes"),
-        Binding("o", "open", "Open in browser"),
+        Binding("o", "open_kep", "Open KEP"),
+        Binding("O", "open_pr", "Open PR"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -183,13 +185,21 @@ class TrackerApp(App):
         self.state.save()
         self._populate(self.verdicts)
 
-    def action_open(self) -> None:
+    def action_open_kep(self) -> None:
+        v = self._selected()
+        if v and v.row.url:
+            webbrowser.open(v.row.url)
+
+    def action_open_pr(self) -> None:
         v = self._selected()
         if not v:
             return
-        url = (v.row.discovered_pr.url if v.row.discovered_pr else "") or v.row.url
-        if url:
-            webbrowser.open(url)
+        # the accepted PR, else a flagged review candidate
+        pr = v.row.discovered_pr or (v.row.rejected_prs[0] if v.row.rejected_prs else None)
+        if pr:
+            webbrowser.open(pr.url)
+        else:
+            self.notify(f"{v.row.kep}: no PR to open", severity="warning")
 
     def action_apply(self) -> None:
         if not self.queued:
