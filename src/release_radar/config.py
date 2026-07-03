@@ -70,8 +70,6 @@ class State:
 
     path: Path
     # keyed by KEP issue "owner/repo#num"
-    comment_cursor: dict[str, str] = field(default_factory=dict)   # resume comment scan
-    last_seen_at: dict[str, str] = field(default_factory=dict)     # ISO of newest scanned
     dismissed: dict[str, str] = field(default_factory=dict)        # kep -> note (hide whole row)
     dismissed_prs: dict[str, str] = field(default_factory=dict)     # pr url -> kep (not a placeholder)
     updated_board: dict[str, str] = field(default_factory=dict)    # kep -> pr url we wrote
@@ -84,8 +82,6 @@ class State:
         d = json.loads(path.read_text())
         return cls(
             path=path,
-            comment_cursor=d.get("comment_cursor", {}),
-            last_seen_at=d.get("last_seen_at", {}),
             dismissed=d.get("dismissed", {}),
             dismissed_prs=d.get("dismissed_prs", {}),
             updated_board=d.get("updated_board", {}),
@@ -95,8 +91,6 @@ class State:
         self.path.write_text(
             json.dumps(
                 {
-                    "comment_cursor": self.comment_cursor,
-                    "last_seen_at": self.last_seen_at,
                     "dismissed": self.dismissed,
                     "dismissed_prs": self.dismissed_prs,
                     "updated_board": self.updated_board,

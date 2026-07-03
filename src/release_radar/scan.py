@@ -76,13 +76,15 @@ def _discover_pr_for(
     if chosen:
         return chosen, rejected
 
-    # 3) nothing yet -> scan NEW comments since last run, persist the resume cursor
-    after = state.comment_cursor.get(item.kep)
-    bodies, new_cursor = gh.new_comment_bodies(owner, repo, item.number, after)
-    if new_cursor:
-        state.comment_cursor[item.kep] = new_cursor
-    if bodies:
-        state.last_seen_at[item.kep] = bodies[-1][1]
+    # 3) still nothing -> scan the KEP's comments for a PR link.
+    # This is a *search*, and it must stay idempotent across runs: a comment can
+    # announce a PR that wasn't acceptable earlier (opened later / retargeted),
+    # and a bare "#123" in a website PR body resolves to website#123, so it never
+    # creates a timeline cross-reference back here — the PR link lives ONLY in a
+    # comment. We only reach this step while the KEP has no accepted PR yet, so
+    # re-reading all comments (after=None) each run is bounded and self-healing.
+    # A resume cursor here silently buried PRs once the newest comment was seen.
+    bodies, _ = gh.new_comment_bodies(owner, repo, item.number, None)
     comment_nums: list[int] = []
     for body, _ in bodies:
         comment_nums.extend(find_pr_numbers(body, cfg.website_repo))
