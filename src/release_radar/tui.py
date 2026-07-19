@@ -18,9 +18,9 @@ from loguru import logger
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer, Header, Static, Label, Button
+from textual.widgets import DataTable, Header, Static, Label, Button
 from textual.containers import Vertical, Horizontal, ScrollableContainer
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 
 from .config import Config, State
 from .github import GitHub
@@ -44,6 +44,45 @@ def _shorten(url: str, width: int = 40) -> str:
     if not url:
         return ""
     return url if len(url) <= width else "…" + url[-(width - 1):]
+
+
+class MultilineFooter(Static):
+    DEFAULT_CSS = """
+    MultilineFooter {
+        dock: bottom;
+        height: auto;
+        background: $footer-background;
+        color: $footer-foreground;
+        padding: 0 1;
+        text-wrap: wrap;
+    }
+    """
+
+    def on_mount(self) -> None:
+        self.screen.bindings_updated_signal.subscribe(self, self.update_bindings)
+        self.update_bindings()
+
+    def on_unmount(self) -> None:
+        self.screen.bindings_updated_signal.unsubscribe(self)
+
+    def update_bindings(self, screen: Screen | None = None) -> None:
+        if not self.is_attached:
+            return
+        active_bindings = self.screen.active_bindings
+        text = Text()
+        first = True
+        for (_, binding, enabled, _) in active_bindings.values():
+            if not binding.show:
+                continue
+            if not first:
+                text.append("  ")
+            first = False
+            
+            key_str = f" {self.app.get_key_display(binding)} "
+            text.append(key_str, style="bold reverse" if enabled else "dim")
+            text.append(f" {binding.description}", style="default" if enabled else "dim")
+            
+        self.update(text)
 
 
 class TrackerApp(App):
@@ -79,7 +118,7 @@ class TrackerApp(App):
         yield Static("", id="summary")
         yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
         yield Static("", id="detail")
-        yield Footer()
+        yield MultilineFooter()
 
     def on_mount(self) -> None:
         t = self.query_one(DataTable)
