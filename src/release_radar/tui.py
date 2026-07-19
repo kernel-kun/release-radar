@@ -18,8 +18,8 @@ from loguru import logger
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer, Header, Static, Label, Button, ScrollableContainer
-from textual.containers import Vertical, Horizontal
+from textual.widgets import DataTable, Footer, Header, Static, Label, Button
+from textual.containers import Vertical, Horizontal, ScrollableContainer
 from textual.screen import ModalScreen
 
 from .config import Config, State
