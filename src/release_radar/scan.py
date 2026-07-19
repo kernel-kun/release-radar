@@ -63,7 +63,15 @@ def _pick_pr(prs: list[PRInfo], dest_branch: str) -> tuple[PRInfo | None, list[P
 def _discover_pr_for(
     gh: GitHub, cfg: Config, state: State, item: BoardItem
 ) -> tuple[PRInfo | None, list[PRInfo]]:
-    """Find a website PR for a KEP item: description first, then timeline, then new comments."""
+    """Find a website PR for a KEP item."""
+    if cfg.deadline == "pr_ready_for_review":
+        # Strictly assume the Board is the source of truth, looking only at the board's Docs PR field.
+        nums = find_pr_numbers(item.docs_pr, cfg.website_repo)
+        prs = []
+        for num in nums:
+            prs.extend(_hydrate(gh, cfg, num))
+        return _pick_pr(prs, cfg.dest_branch)
+
     owner, repo = item.repo.split("/", 1)
 
     # 1) structured timeline (most reliable — catches cross-repo links + connected PRs)

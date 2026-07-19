@@ -132,6 +132,8 @@ class TrackerApp(App):
                 "KEP",
                 "Status",
                 "Q",
+                "Docs PR",
+                "PR State",
                 "Reminders",
                 "Assignee",
                 "Board 'Docs Notes'",
@@ -182,10 +184,31 @@ class TrackerApp(App):
                     str(pr.reminder_count()) if pr and pr.reminder_count() > 0 else "—"
                 )
                 board = v.row.board_docs_notes or Text("—", style="grey62")
+
+                # Docs PR Link
+                pr_link = (
+                    f"#{pr.number}" if pr else (_shorten(v.row.board_docs_pr) or "—")
+                )
+                pr_link_styled = Text(pr_link, style="default" if pr else "grey62")
+
+                # PR State
+                if not pr:
+                    pr_state_styled = Text("—", style="grey62")
+                elif pr.state == "MERGED":
+                    pr_state_styled = Text("Merged", style="green")
+                elif pr.state == "CLOSED":
+                    pr_state_styled = Text("Closed", style="red")
+                elif pr.is_draft:
+                    pr_state_styled = Text("Draft", style="yellow")
+                else:
+                    pr_state_styled = Text("Open", style="green")
+
                 t.add_row(
                     v.row.kep,
                     Text(label, style=style),
                     Text(queued, style="cyan"),
+                    pr_link_styled,
+                    pr_state_styled,
                     Text(reminders, style="magenta" if reminders != "—" else "grey62"),
                     v.row.assignee,
                     board,
