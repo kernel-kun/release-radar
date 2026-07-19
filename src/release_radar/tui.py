@@ -128,6 +128,13 @@ class TrackerApp(App):
             t.add_columns("KEP", "Status", "Q", "Assignee", "Board 'Docs PR'", "Finding")
         self.action_rescan()
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "dismiss" and self.cfg.deadline == "pr_ready_for_review":
+            return False
+        if action in ("send_message", "view_history", "mark_ready") and self.cfg.deadline != "pr_ready_for_review":
+            return False
+        return True
+
     # --- scanning ----------------------------------------------------------
 
     def action_rescan(self) -> None:
