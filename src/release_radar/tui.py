@@ -518,7 +518,7 @@ class HistoryModal(ModalScreen[None]):
         padding: 1 2;
     }
     #modal_title {
-        font-weight: bold;
+        text-style: bold;
         text-align: center;
         margin-bottom: 1;
         background: $accent;
