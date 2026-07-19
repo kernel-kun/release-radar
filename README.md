@@ -36,7 +36,7 @@ Compares the state against the board's `Docs Notes` field and suggests writeback
 - **Closed PR**: Classified as `closed` (attention needed).
 - **Draft PR**: Classified as `meets` (or `needs_board` if notes are out of sync). Expected board notes: `🔴 Draft PR`.
 - **Open PR (No verification)**: Classified as `meets` / `needs_board`. Expected board notes: `🟠 {TUI_comment_count} Reminder Sent`.
-- **Open PR (Marked Ready)**: Classified as `meets` / `needs_board`. Expected board notes: `🟢 PR Review for Review`.
+- **Open PR (Marked Ready)**: Classified as `meets` / `needs_board`. Expected board notes: `🟢 PR Ready for Review`.
 
 ---
 

@@ -24,7 +24,7 @@ from textual.screen import ModalScreen, Screen
 
 from .config import Config, State
 from .github import GitHub
-from .logic import Status, Verdict, evaluate
+from .logic import Status, Verdict, evaluate, CommentInfo
 from .scan import run_scan
 from .writeback import apply_writes
 
@@ -329,7 +329,10 @@ class TrackerApp(App):
                 "kep_title": v.row.title,
                 "kep_url": v.row.url,
             }
-            body = self.template_content.format(**variables)
+            class SafeFormatter(dict):
+                def __missing__(self, key):
+                    return f"{{{key}}}"
+            body = self.template_content.format_map(SafeFormatter(**variables))
 
             import json
             import re

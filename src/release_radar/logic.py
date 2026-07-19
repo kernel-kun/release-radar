@@ -276,7 +276,7 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
         expected = "🔴 Draft PR"
     else:
         if pr.is_marked_ready():
-            expected = "🟢 PR Review for Review"
+            expected = "🟢 PR Ready for Review"
         else:
             expected = f"🟠 {pr.reminder_count()} Reminder Sent"
 

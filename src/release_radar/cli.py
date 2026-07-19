@@ -124,8 +124,12 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
         "kep_title": "Sample KEP Title",
         "kep_url": "https://github.com/kubernetes/enhancements/issues/123",
     }
+    class SafeFormatter(dict):
+        def __missing__(self, key):
+            return f"{{{key}}}"
+
     try:
-        preview_content = raw_content.format(**dummy_vars)
+        preview_content = raw_content.format_map(SafeFormatter(**dummy_vars))
     except Exception as e:
         preview_content = f"Error rendering preview variables: {e}\n\nRaw Content:\n{raw_content}"
 
@@ -171,7 +175,7 @@ def main() -> None:
     from .github import GitHub, MissingScopeError
 
     template_content = ""
-    if cfg.deadline == "pr_ready_for_review":
+    if not args.no_tui and cfg.deadline == "pr_ready_for_review":
         _, template_content = select_template(args.template)
 
     try:
