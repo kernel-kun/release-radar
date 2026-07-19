@@ -5,7 +5,7 @@ We noticed that this Pull Request is currently in the **Open** state.
 > [!NOTE]
 > Could you please confirm:
 > 1. Are all of the required changes done from your end?
-> 2. Is this PR now awaiting review from your required SIGs or working groups, or is it awaiting a technical review?
+> 2. Is this PR now awaiting a technical review from your required SIGs/WGs?
 
 > [!IMPORTANT]
 > **Upcoming Docs Deadlines**:
