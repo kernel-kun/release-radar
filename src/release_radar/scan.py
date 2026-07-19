@@ -4,6 +4,7 @@ Per-KEP PR discovery is network-bound and independent, so it runs on a thread
 pool. The GitHub client is thread-safe for our use (httpx.Client + stateless
 queries), so we share one.
 """
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,11 +40,12 @@ def _in_cycle(pr: PRInfo, cfg: Config) -> bool:
     return True
 
 
-def _candidate_rejects(rejected: list[PRInfo], cfg: Config, state: State) -> list[PRInfo]:
+def _candidate_rejects(
+    rejected: list[PRInfo], cfg: Config, state: State
+) -> list[PRInfo]:
     """Rejected PRs worth surfacing: opened this cycle and not user-dismissed."""
     return [
-        p for p in rejected
-        if _in_cycle(p, cfg) and p.url not in state.dismissed_prs
+        p for p in rejected if _in_cycle(p, cfg) and p.url not in state.dismissed_prs
     ]
 
 
@@ -144,25 +146,36 @@ def run_scan(
         logger.info("view {} filter: {!r}", cfg.view_number, view_query)
 
     items = gh.board_items(
-        cfg.owner, cfg.owner_is_org, cfg.project_number,
-        cfg.field_docs_assignee, cfg.field_docs_pr, cfg.field_doc_status,
+        cfg.owner,
+        cfg.owner_is_org,
+        cfg.project_number,
+        cfg.field_docs_assignee,
+        cfg.field_docs_pr,
+        cfg.field_doc_status,
         cfg.field_docs_notes,
         query=view_query,
     )
     keps = [
-        it for it in items
+        it
+        for it in items
         if it.kep and _assignee_matches(it.assignee, cfg.docs_assignees)
     ]
-    logger.info("{} items in view, {} KEPs assigned to configured docs shadows",
-                len(items), len(keps))
+    logger.info(
+        "{} items in view, {} KEPs assigned to configured docs shadows",
+        len(items),
+        len(keps),
+    )
 
     verdicts: list[Verdict] = []
     done = 0
 
     def work(item: BoardItem) -> Verdict:
         row = KepRow(
-            kep=item.kep, title=item.title, url=item.url,
-            assignee=item.assignee, board_docs_pr=item.docs_pr,
+            kep=item.kep,
+            title=item.title,
+            url=item.url,
+            assignee=item.assignee,
+            board_docs_pr=item.docs_pr,
             board_docs_notes=item.docs_notes,
             kep_author=item.kep_author,
             kep_assignees=item.kep_assignees,
@@ -171,7 +184,8 @@ def run_scan(
         # 'No docs needed' on the board -> no PR is expected; skip discovery.
         if item.doc_status == cfg.no_docs_status:
             return Verdict(
-                row, Status.NO_DOCS,
+                row,
+                Status.NO_DOCS,
                 detail=f"board 'Doc Status' = {cfg.no_docs_status!r}",
                 action="",
             )
@@ -201,31 +215,49 @@ def _demo() -> None:
     from pathlib import Path
 
     def pr(url, day):
-        return PRInfo(id="node_id", number=int(url.rsplit("/", 1)[1]), url=url, base_ref="main",
-                      state="CLOSED", is_draft=False, repo="kubernetes/website",
-                      created_at=day)
+        return PRInfo(
+            id="node_id",
+            number=int(url.rsplit("/", 1)[1]),
+            url=url,
+            base_ref="main",
+            state="CLOSED",
+            is_draft=False,
+            repo="kubernetes/website",
+            created_at=day,
+        )
 
     class C:  # minimal cfg stand-in
         cycle_start, cycle_end = "2026-05-01", "2026-08-31"
 
     old = pr("https://github.com/kubernetes/website/pull/40065", "2022-03-10T00:00:00Z")
     cur = pr("https://github.com/kubernetes/website/pull/50000", "2026-06-01T00:00:00Z")
-    assert not _in_cycle(old, C)          # prior-cycle PR -> filtered out
-    assert _in_cycle(cur, C)              # this-cycle PR -> kept
-    assert PRInfo("node_id", 1, "u", "main", "OPEN", False, "r").created_at == ""  # unknown date
-    assert _in_cycle(PRInfo("node_id", 1, "u", "main", "OPEN", False, "r"), C)     # unknown -> keep
+    assert not _in_cycle(old, C)  # prior-cycle PR -> filtered out
+    assert _in_cycle(cur, C)  # this-cycle PR -> kept
+    assert (
+        PRInfo("node_id", 1, "u", "main", "OPEN", False, "r").created_at == ""
+    )  # unknown date
+    assert _in_cycle(
+        PRInfo("node_id", 1, "u", "main", "OPEN", False, "r"), C
+    )  # unknown -> keep
 
     st = State(path=Path("/dev/null"))
-    assert _candidate_rejects([old, cur], C, st) == [cur]   # only in-cycle survives
+    assert _candidate_rejects([old, cur], C, st) == [cur]  # only in-cycle survives
     st.dismissed_prs[cur.url] = "kep"
-    assert _candidate_rejects([old, cur], C, st) == []      # dismissed PR dropped
+    assert _candidate_rejects([old, cur], C, st) == []  # dismissed PR dropped
 
     # Invariant: the window gates only *rejected* PRs. A PR correctly targeting
     # dev-1.37 is "acceptable" -> becomes `chosen` -> never sees the window,
     # even if it was opened years before cycle_start.
-    correct_but_old = PRInfo("node_id", 7, "https://github.com/kubernetes/website/pull/7",
-                             "dev-1.37", "OPEN", False, "kubernetes/website",
-                             "2022-01-01T00:00:00Z")
+    correct_but_old = PRInfo(
+        "node_id",
+        7,
+        "https://github.com/kubernetes/website/pull/7",
+        "dev-1.37",
+        "OPEN",
+        False,
+        "kubernetes/website",
+        "2022-01-01T00:00:00Z",
+    )
     chosen, rejected = _pick_pr([correct_but_old], "dev-1.37")
     assert chosen is correct_but_old and rejected == []
     print("scan._demo ok")

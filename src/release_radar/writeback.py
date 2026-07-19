@@ -3,6 +3,7 @@
 Only writes TEXT fields (the common 'Docs PR' shape). If your board uses a
 different field type, it errors loudly rather than guessing.
 """
+
 from __future__ import annotations
 
 from loguru import logger
@@ -16,7 +17,11 @@ def apply_writes(
     cfg: Config, state: State, gh: GitHub, targets: list[Verdict]
 ) -> list[tuple[str, bool, str]]:
     """Write suggested PR URLs or Docs Notes status into the board fields. Returns (kep, ok, msg) per target."""
-    field_name = cfg.field_docs_notes if cfg.deadline == "pr_ready_for_review" else cfg.field_docs_pr
+    field_name = (
+        cfg.field_docs_notes
+        if cfg.deadline == "pr_ready_for_review"
+        else cfg.field_docs_pr
+    )
     project_id, field_id, data_type = gh.project_id_and_field(
         cfg.owner, cfg.owner_is_org, cfg.project_number, field_name
     )

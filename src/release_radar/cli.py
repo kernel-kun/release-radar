@@ -1,4 +1,5 @@
 """Entry point. TUI by default; --no-tui prints a rich table (good for CI/logs)."""
+
 from __future__ import annotations
 
 import argparse
@@ -30,8 +31,11 @@ def _report(cfg: Config, state: State) -> int:
 
     verdicts = [v for v in verdicts if v.row.kep not in state.dismissed]
     styles = {
-        Status.MEETS: "green", Status.NEEDS_BOARD: "yellow",
-        Status.MISMATCH: "red", Status.BAD_PR: "yellow", Status.NO_PR: "grey62",
+        Status.MEETS: "green",
+        Status.NEEDS_BOARD: "yellow",
+        Status.MISMATCH: "red",
+        Status.BAD_PR: "yellow",
+        Status.NO_PR: "grey62",
         Status.NO_DOCS: "blue",
     }
     table = Table(title=f"{cfg.deadline} · {cfg.project_url}")
@@ -50,8 +54,10 @@ def _report(cfg: Config, state: State) -> int:
         )
     console.print(table)
     actionable = sum(
-        1 for v in verdicts
-        if v.status in (Status.NEEDS_BOARD, Status.MISMATCH, Status.BAD_PR, Status.NO_PR)
+        1
+        for v in verdicts
+        if v.status
+        in (Status.NEEDS_BOARD, Status.MISMATCH, Status.BAD_PR, Status.NO_PR)
     )
     console.print(f"[bold]{actionable}[/] rows need attention.")
     return 1 if actionable else 0
@@ -124,6 +130,7 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
         "kep_title": "Sample KEP Title",
         "kep_url": "https://github.com/kubernetes/enhancements/issues/123",
     }
+
     class SafeFormatter(dict):
         def __missing__(self, key):
             return f"{{{key}}}"
@@ -131,10 +138,18 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     try:
         preview_content = raw_content.format_map(SafeFormatter(**dummy_vars))
     except Exception as e:
-        preview_content = f"Error rendering preview variables: {e}\n\nRaw Content:\n{raw_content}"
+        preview_content = (
+            f"Error rendering preview variables: {e}\n\nRaw Content:\n{raw_content}"
+        )
 
     console.print("\n[bold cyan]Template Preview (Rendered GFM):[/]")
-    console.print(Panel(Markdown(preview_content), title=f"Preview: {selected.name}", subtitle="Press Enter to accept or Ctrl+C to abort"))
+    console.print(
+        Panel(
+            Markdown(preview_content),
+            title=f"Preview: {selected.name}",
+            subtitle="Press Enter to accept or Ctrl+C to abort",
+        )
+    )
     try:
         input()
     except (KeyboardInterrupt, EOFError):
@@ -149,9 +164,13 @@ def main() -> None:
     p.add_argument("-c", "--config", default=_DEFAULT_CONFIG, help="config YAML path")
     p.add_argument("-s", "--state", default=_DEFAULT_STATE, help="state JSON path")
     p.add_argument("-t", "--template", help="path to markdown template file")
-    p.add_argument("--no-tui", action="store_true", help="print a report instead of the TUI")
+    p.add_argument(
+        "--no-tui", action="store_true", help="print a report instead of the TUI"
+    )
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
-    p.add_argument("--check", action="store_true", help="run internal logic self-test and exit")
+    p.add_argument(
+        "--check", action="store_true", help="run internal logic self-test and exit"
+    )
     args = p.parse_args()
 
     logger.remove()
@@ -160,13 +179,16 @@ def main() -> None:
     if args.check:
         from .logic import _demo as logic_demo
         from .scan import _demo as scan_demo
+
         logic_demo()
         scan_demo()
         return
 
     cfg_path = Path(args.config)
     if not cfg_path.exists():
-        logger.error("No config at {}. Copy config.example.yaml -> {}.", cfg_path, cfg_path)
+        logger.error(
+            "No config at {}. Copy config.example.yaml -> {}.", cfg_path, cfg_path
+        )
         sys.exit(2)
 
     cfg = Config.load(cfg_path)

@@ -10,6 +10,7 @@ Keys:
   o  open the KEP issue          O  open its PR (accepted or flagged candidate)
   q  quit (state is saved on exit)
 """
+
 from __future__ import annotations
 
 import webbrowser
@@ -24,7 +25,7 @@ from textual.screen import ModalScreen, Screen
 
 from .config import Config, State
 from .github import GitHub
-from .logic import Status, Verdict, evaluate, CommentInfo
+from .logic import Status, Verdict, evaluate, CommentInfo, PRInfo
 from .scan import run_scan
 from .writeback import apply_writes
 
@@ -43,7 +44,7 @@ _STATUS_STYLE = {
 def _shorten(url: str, width: int = 40) -> str:
     if not url:
         return ""
-    return url if len(url) <= width else "…" + url[-(width - 1):]
+    return url if len(url) <= width else "…" + url[-(width - 1) :]
 
 
 class MultilineFooter(Static):
@@ -71,17 +72,19 @@ class MultilineFooter(Static):
         active_bindings = self.screen.active_bindings
         text = Text()
         first = True
-        for (_, binding, enabled, _) in active_bindings.values():
+        for _, binding, enabled, _ in active_bindings.values():
             if not binding.show:
                 continue
             if not first:
                 text.append("  ")
             first = False
-            
+
             key_str = f" {self.app.get_key_display(binding)} "
             text.append(key_str, style="bold reverse" if enabled else "dim")
-            text.append(f" {binding.description}", style="default" if enabled else "dim")
-            
+            text.append(
+                f" {binding.description}", style="default" if enabled else "dim"
+            )
+
         self.update(text)
 
 
@@ -104,7 +107,9 @@ class TrackerApp(App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, cfg: Config, state: State, gh: GitHub, template_content: str = ""):
+    def __init__(
+        self, cfg: Config, state: State, gh: GitHub, template_content: str = ""
+    ):
         super().__init__()
         self.cfg = cfg
         self.state = state
@@ -123,15 +128,28 @@ class TrackerApp(App):
     def on_mount(self) -> None:
         t = self.query_one(DataTable)
         if self.cfg.deadline == "pr_ready_for_review":
-            t.add_columns("KEP", "Status", "Q", "Reminders", "Assignee", "Board 'Docs Notes'", "Finding")
+            t.add_columns(
+                "KEP",
+                "Status",
+                "Q",
+                "Reminders",
+                "Assignee",
+                "Board 'Docs Notes'",
+                "Finding",
+            )
         else:
-            t.add_columns("KEP", "Status", "Q", "Assignee", "Board 'Docs PR'", "Finding")
+            t.add_columns(
+                "KEP", "Status", "Q", "Assignee", "Board 'Docs PR'", "Finding"
+            )
         self.action_rescan()
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "dismiss" and self.cfg.deadline == "pr_ready_for_review":
             return False
-        if action in ("send_message", "view_history", "mark_ready") and self.cfg.deadline != "pr_ready_for_review":
+        if (
+            action in ("send_message", "view_history", "mark_ready")
+            and self.cfg.deadline != "pr_ready_for_review"
+        ):
             return False
         return True
 
@@ -160,7 +178,9 @@ class TrackerApp(App):
             queued = "→ write" if v.row.kep in self.queued else ""
             if self.cfg.deadline == "pr_ready_for_review":
                 pr = v.row.discovered_pr
-                reminders = str(pr.reminder_count()) if pr and pr.reminder_count() > 0 else "—"
+                reminders = (
+                    str(pr.reminder_count()) if pr and pr.reminder_count() > 0 else "—"
+                )
                 board = v.row.board_docs_notes or Text("—", style="grey62")
                 t.add_row(
                     v.row.kep,
@@ -186,11 +206,13 @@ class TrackerApp(App):
         if t.row_count:
             t.move_cursor(row=max(0, min(saved_row, t.row_count - 1)))
         summary = "  ".join(
-            f"[{_STATUS_STYLE[s][1]}]{_STATUS_STYLE[s][0]}: {counts.get(s,0)}[/]"
+            f"[{_STATUS_STYLE[s][1]}]{_STATUS_STYLE[s][0]}: {counts.get(s, 0)}[/]"
             for s in Status
         )
         self.query_one("#summary", Static).update(
-            Text.from_markup(f"{len(self.verdicts)} KEPs   {summary}   ({len(self.queued)} queued)")
+            Text.from_markup(
+                f"{len(self.verdicts)} KEPs   {summary}   ({len(self.queued)} queued)"
+            )
         )
         self._show_detail(self._selected())
 
@@ -213,7 +235,9 @@ class TrackerApp(App):
             return
         label, style = _STATUS_STYLE[v.status]
         lines = [
-            Text.assemble((label, f"bold {style}"), "  ", (v.row.kep, "bold"), f"  {v.row.title}"),
+            Text.assemble(
+                (label, f"bold {style}"), "  ", (v.row.kep, "bold"), f"  {v.row.title}"
+            ),
             Text.assemble(("Finding: ", "bold"), v.detail),
         ]
         if v.status in (Status.MEETS, Status.NO_DOCS):
@@ -231,7 +255,9 @@ class TrackerApp(App):
         if not v:
             return
         if v.status is not Status.NEEDS_BOARD:
-            self.notify(f"{v.row.kep}: only NEEDS_BOARD rows can be written", severity="warning")
+            self.notify(
+                f"{v.row.kep}: only NEEDS_BOARD rows can be written", severity="warning"
+            )
             return
         self.queued.symmetric_difference_update({v.row.kep})
         self._populate(self.verdicts)
@@ -249,7 +275,9 @@ class TrackerApp(App):
             v.row.rejected_prs = []
             # re-evaluate this one row locally (no network) so it drops to NO_PR now
             fresh = evaluate(self.cfg.deadline, v.row, self.cfg.dest_branch)
-            self.verdicts = [fresh if x.row.kep == v.row.kep else x for x in self.verdicts]
+            self.verdicts = [
+                fresh if x.row.kep == v.row.kep else x for x in self.verdicts
+            ]
             self.notify(f"{v.row.kep}: dismissed {n} candidate PR(s)")
         else:
             self.state.dismissed[v.row.kep] = v.detail
@@ -267,7 +295,9 @@ class TrackerApp(App):
         if not v:
             return
         # the accepted PR, else a flagged review candidate
-        pr = v.row.discovered_pr or (v.row.rejected_prs[0] if v.row.rejected_prs else None)
+        pr = v.row.discovered_pr or (
+            v.row.rejected_prs[0] if v.row.rejected_prs else None
+        )
         if pr:
             webbrowser.open(pr.url)
         else:
@@ -275,10 +305,15 @@ class TrackerApp(App):
 
     def action_apply(self) -> None:
         if not self.queued:
-            self.notify("Nothing queued. Press 'u' on NEEDS_BOARD rows first.", severity="warning")
+            self.notify(
+                "Nothing queued. Press 'u' on NEEDS_BOARD rows first.",
+                severity="warning",
+            )
             return
         targets = [v for v in self.verdicts if v.row.kep in self.queued]
-        self.query_one("#summary", Static).update(f"Writing {len(targets)} board fields…")
+        self.query_one("#summary", Static).update(
+            f"Writing {len(targets)} board fields…"
+        )
         self.run_worker(lambda: self._apply(targets), thread=True, exclusive=True)
 
     def _apply(self, targets: list[Verdict]) -> None:
@@ -291,19 +326,24 @@ class TrackerApp(App):
         self.call_from_thread(self.action_rescan)
         self.call_from_thread(
             self.notify,
-            f"Wrote {sum(1 for _,ok,_ in results if ok)}/{len(results)} rows",
+            f"Wrote {sum(1 for _, ok, _ in results if ok)}/{len(results)} rows",
         )
 
     def action_send_message(self) -> None:
         if self.cfg.deadline != "pr_ready_for_review":
-            self.notify("Sending messages is only supported for the 'pr_ready_for_review' deadline.", severity="warning")
+            self.notify(
+                "Sending messages is only supported for the 'pr_ready_for_review' deadline.",
+                severity="warning",
+            )
             return
         v = self._selected()
         if not v:
             return
         pr = v.row.discovered_pr
         if not pr:
-            self.notify(f"{v.row.kep}: no discovered PR to comment on", severity="warning")
+            self.notify(
+                f"{v.row.kep}: no discovered PR to comment on", severity="warning"
+            )
             return
         if not self.template_content:
             self.notify("No template selected for this session.", severity="warning")
@@ -321,7 +361,9 @@ class TrackerApp(App):
 
         def check_choice(confirmed: bool) -> None:
             if confirmed:
-                self.run_worker(lambda: self._send_message(v, pr), thread=True, exclusive=True)
+                self.run_worker(
+                    lambda: self._send_message(v, pr), thread=True, exclusive=True
+                )
 
         self.push_screen(ConfirmationModal(msg), check_choice)
 
@@ -336,9 +378,11 @@ class TrackerApp(App):
                 "kep_title": v.row.title,
                 "kep_url": v.row.url,
             }
+
             class SafeFormatter(dict):
                 def __missing__(self, key):
                     return f"{{{key}}}"
+
             body = self.template_content.format_map(SafeFormatter(**variables))
 
             import json
@@ -350,11 +394,13 @@ class TrackerApp(App):
                 meta = {
                     "sent_at": datetime.now(timezone.utc).isoformat(),
                     "reminder_number": 1,
-                    "ready_for_review": False
+                    "ready_for_review": False,
                 }
                 comment_body = f"{body}\n\n<!-- release-radar: {json.dumps(meta)} -->"
                 self.gh.add_comment(pr.id, comment_body)
-                self.call_from_thread(self.notify, f"Posted first reminder to PR #{pr.number}")
+                self.call_from_thread(
+                    self.notify, f"Posted first reminder to PR #{pr.number}"
+                )
             else:
                 comment_body = f"{body}\n\n<!-- release-radar: subsequent -->"
                 self.gh.add_comment(pr.id, comment_body)
@@ -373,21 +419,31 @@ class TrackerApp(App):
                 meta["reminder_number"] = meta.get("reminder_number", 1) + 1
                 new_meta_str = f"<!-- release-radar: {json.dumps(meta)} -->"
                 if m:
-                    new_body = orig_body[:m.start()] + new_meta_str + orig_body[m.end():]
+                    new_body = (
+                        orig_body[: m.start()] + new_meta_str + orig_body[m.end() :]
+                    )
                 else:
                     new_body = f"{orig_body}\n\n{new_meta_str}"
 
                 self.gh.update_comment(first_comment.id, new_body)
-                self.call_from_thread(self.notify, f"Posted reminder #{meta['reminder_number']} and updated first comment metadata.")
+                self.call_from_thread(
+                    self.notify,
+                    f"Posted reminder #{meta['reminder_number']} and updated first comment metadata.",
+                )
 
             self.call_from_thread(self.action_rescan)
         except Exception as e:
             logger.error("Failed to send message: {}", e)
-            self.call_from_thread(self.notify, f"Failed to send message: {e}", severity="error")
+            self.call_from_thread(
+                self.notify, f"Failed to send message: {e}", severity="error"
+            )
 
     def action_view_history(self) -> None:
         if self.cfg.deadline != "pr_ready_for_review":
-            self.notify("Viewing message history is only supported for the 'pr_ready_for_review' deadline.", severity="warning")
+            self.notify(
+                "Viewing message history is only supported for the 'pr_ready_for_review' deadline.",
+                severity="warning",
+            )
             return
         v = self._selected()
         if not v:
@@ -401,7 +457,10 @@ class TrackerApp(App):
 
     def action_mark_ready(self) -> None:
         if self.cfg.deadline != "pr_ready_for_review":
-            self.notify("Marking as ready is only supported for the 'pr_ready_for_review' deadline.", severity="warning")
+            self.notify(
+                "Marking as ready is only supported for the 'pr_ready_for_review' deadline.",
+                severity="warning",
+            )
             return
         v = self._selected()
         if not v:
@@ -422,11 +481,17 @@ class TrackerApp(App):
 
         def check_choice(confirmed: bool) -> None:
             if confirmed:
-                self.run_worker(lambda: self._mark_ready(v, pr, tc, is_merged), thread=True, exclusive=True)
+                self.run_worker(
+                    lambda: self._mark_ready(v, pr, tc, is_merged),
+                    thread=True,
+                    exclusive=True,
+                )
 
         self.push_screen(ConfirmationModal(msg), check_choice)
 
-    def _mark_ready(self, v: Verdict, pr: PRInfo, tc: list[CommentInfo], is_merged: bool) -> None:
+    def _mark_ready(
+        self, v: Verdict, pr: PRInfo, tc: list[CommentInfo], is_merged: bool
+    ) -> None:
         try:
             import json
             import re
@@ -450,26 +515,34 @@ class TrackerApp(App):
                 meta["ready_for_review"] = True
                 new_meta_str = f"<!-- release-radar: {json.dumps(meta)} -->"
                 if m:
-                    new_body = body[:m.start()] + new_meta_str + body[m.end():]
+                    new_body = body[: m.start()] + new_meta_str + body[m.end() :]
                 else:
                     new_body = f"{body}\n\n{new_meta_str}"
 
                 self.gh.update_comment(first_comment.id, new_body)
-                self.call_from_thread(self.notify, f"Updated first comment to mark PR #{pr.number} as {action_name}.")
+                self.call_from_thread(
+                    self.notify,
+                    f"Updated first comment to mark PR #{pr.number} as {action_name}.",
+                )
             else:
                 meta = {
                     "sent_at": datetime.now(timezone.utc).isoformat(),
                     "reminder_number": 1,
-                    "ready_for_review": True
+                    "ready_for_review": True,
                 }
                 comment_body = f"This PR is marked as {action_name} from our side.\n\n<!-- release-radar: {json.dumps(meta)} -->"
                 self.gh.add_comment(pr.id, comment_body)
-                self.call_from_thread(self.notify, f"Posted {action_name.lower()} comment to PR #{pr.number}.")
+                self.call_from_thread(
+                    self.notify,
+                    f"Posted {action_name.lower()} comment to PR #{pr.number}.",
+                )
 
             self.call_from_thread(self.action_rescan)
         except Exception as e:
             logger.error("Failed to mark ready: {}", e)
-            self.call_from_thread(self.notify, f"Failed to mark ready: {e}", severity="error")
+            self.call_from_thread(
+                self.notify, f"Failed to mark ready: {e}", severity="error"
+            )
 
     def action_quit(self) -> None:
         self.state.save()
@@ -559,12 +632,16 @@ class HistoryModal(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal_container"):
-            yield Label(f"Chronological Message History: {self.pr_url}", id="modal_title")
+            yield Label(
+                f"Chronological Message History: {self.pr_url}", id="modal_title"
+            )
             with ScrollableContainer(id="comments_list"):
                 if not self.comments:
-                    yield Label("No release-radar messages sent using this utility yet.")
+                    yield Label(
+                        "No release-radar messages sent using this utility yet."
+                    )
                 for idx, c in enumerate(self.comments):
-                    yield Label(f"[bold green]Message #{idx+1} ({c.created_at})[/]")
+                    yield Label(f"[bold green]Message #{idx + 1} ({c.created_at})[/]")
                     yield Label(c.body)
                     yield Label("-" * 40)
             yield Button("Close", id="close_btn")

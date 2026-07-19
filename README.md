@@ -65,7 +65,7 @@ uv run release-radar --no-tui   # plain report (CI/logs), exit 1 if rows need at
 uv run release-radar --check    # logic self-test, no network
 ```
 
-TUI keys: 
+TUI keys:
 - `R` ➡️ rescan
 - `u` ➡️ queue/unqueue a board write
 - `a` ➡️ apply queued board writes

@@ -1,4 +1,5 @@
 """Config + state file loading. State is a plain JSON dict persisted next to config."""
+
 from __future__ import annotations
 
 import json
@@ -32,8 +33,10 @@ class Config:
     no_docs_status: str
     docs_assignees: list[str]
     deadline: str
-    cycle_start: str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
-    cycle_end: str    # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
+    cycle_start: (
+        str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
+    )
+    cycle_end: str  # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
     path: Path
 
     @classmethod
@@ -72,9 +75,15 @@ class State:
 
     path: Path
     # keyed by KEP issue "owner/repo#num"
-    dismissed: dict[str, str] = field(default_factory=dict)        # kep -> note (hide whole row)
-    dismissed_prs: dict[str, str] = field(default_factory=dict)     # pr url -> kep (not a placeholder)
-    updated_board: dict[str, str] = field(default_factory=dict)    # kep -> pr url we wrote
+    dismissed: dict[str, str] = field(
+        default_factory=dict
+    )  # kep -> note (hide whole row)
+    dismissed_prs: dict[str, str] = field(
+        default_factory=dict
+    )  # pr url -> kep (not a placeholder)
+    updated_board: dict[str, str] = field(
+        default_factory=dict
+    )  # kep -> pr url we wrote
 
     @classmethod
     def load(cls, path: str | Path) -> "State":

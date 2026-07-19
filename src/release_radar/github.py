@@ -4,6 +4,7 @@ Auth: reuses the `gh` CLI token (`gh auth token`) so we don't manage secrets.
 The token needs the `read:project` scope to read the board and `project` to
 write the 'Docs PR' field. If missing, run:  gh auth refresh -s project
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -19,6 +20,7 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 
 class MissingScopeError(RuntimeError):
     """Token lacks the Projects scope needed to read/write the board."""
+
 
 # --- queries (paste-ready, schema-verified) --------------------------------
 
@@ -194,14 +196,14 @@ mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $text: String!) {
 class BoardItem:
     item_id: str
     content_type: str
-    kep: str            # owner/repo#num (issues only; "" otherwise)
+    kep: str  # owner/repo#num (issues only; "" otherwise)
     number: int
     title: str
     url: str
     body: str
-    assignee: str       # resolved Docs Assignee value
-    docs_pr: str        # resolved Docs PR value
-    doc_status: str     # resolved Doc Status value
+    assignee: str  # resolved Docs Assignee value
+    docs_pr: str  # resolved Docs PR value
+    doc_status: str  # resolved Doc Status value
     repo: str
     docs_notes: str = ""
     kep_author: str = ""
@@ -236,7 +238,9 @@ class GitHub:
         self.close()
 
     def query(self, document: str, **variables) -> dict:
-        r = self.client.post(GRAPHQL_URL, json={"query": document, "variables": variables})
+        r = self.client.post(
+            GRAPHQL_URL, json={"query": document, "variables": variables}
+        )
         r.raise_for_status()
         data = r.json()
         if "errors" in data:
@@ -260,7 +264,9 @@ class GitHub:
         self, owner: str, is_org: bool, number: int, field_name: str
     ) -> tuple[str, str | None, str | None]:
         """Return (projectId, fieldId, dataType) for `field_name`."""
-        q = self._root(_DISCOVER_IDS_Q, is_org).replace("$fieldName", '"' + field_name + '"')
+        q = self._root(_DISCOVER_IDS_Q, is_org).replace(
+            "$fieldName", '"' + field_name + '"'
+        )
         data = self.query(q, owner=owner, number=number)
         proj = data[("organization" if is_org else "user")]["projectV2"]
         f = proj.get("field")
@@ -274,8 +280,13 @@ class GitHub:
         return v.get("filter") or ""
 
     def board_items(
-        self, owner: str, is_org: bool, number: int,
-        assignee_field: str, docs_pr_field: str, doc_status_field: str = "",
+        self,
+        owner: str,
+        is_org: bool,
+        number: int,
+        assignee_field: str,
+        docs_pr_field: str,
+        doc_status_field: str = "",
         docs_notes_field: str = "",
         query: str = "",
     ) -> list[BoardItem]:
@@ -289,7 +300,13 @@ class GitHub:
             for node in conn["nodes"]:
                 if node.get("isArchived"):
                     continue
-                item = _parse_item(node, assignee_field, docs_pr_field, doc_status_field, docs_notes_field)
+                item = _parse_item(
+                    node,
+                    assignee_field,
+                    docs_pr_field,
+                    doc_status_field,
+                    docs_notes_field,
+                )
                 if item:
                     out.append(item)
             page = conn["pageInfo"]
@@ -301,7 +318,9 @@ class GitHub:
 
     # --- PR discovery on a KEP issue --------------------------------------
 
-    def linked_prs(self, owner: str, repo: str, num: int, website_repo: str) -> list[PRInfo]:
+    def linked_prs(
+        self, owner: str, repo: str, num: int, website_repo: str
+    ) -> list[PRInfo]:
         """PRs in `website_repo` cross-referenced/connected to the issue."""
         q = _TIMELINE_Q.replace("%PR_FRAG%", _PR_FRAG)
         after = None
@@ -351,8 +370,16 @@ class GitHub:
         data = self.query(_ADD_ITEM_M, projectId=project_id, contentId=content_id)
         return data["addProjectV2ItemById"]["item"]["id"]
 
-    def set_text_field(self, project_id: str, item_id: str, field_id: str, text: str) -> None:
-        self.query(_SET_TEXT_M, projectId=project_id, itemId=item_id, fieldId=field_id, text=text)
+    def set_text_field(
+        self, project_id: str, item_id: str, field_id: str, text: str
+    ) -> None:
+        self.query(
+            _SET_TEXT_M,
+            projectId=project_id,
+            itemId=item_id,
+            fieldId=field_id,
+            text=text,
+        )
 
     def add_comment(self, subject_id: str, body: str) -> None:
         self.query(_ADD_COMMENT_M, subjectId=subject_id, body=body)
@@ -378,7 +405,11 @@ def _field_value(node: dict) -> str:
 
 
 def _parse_item(
-    node: dict, assignee_field: str, docs_pr_field: str, doc_status_field: str = "", docs_notes_field: str = ""
+    node: dict,
+    assignee_field: str,
+    docs_pr_field: str,
+    doc_status_field: str = "",
+    docs_notes_field: str = "",
 ) -> BoardItem | None:
     content = node.get("content") or {}
     ctype = content.get("__typename", "")
@@ -392,7 +423,9 @@ def _parse_item(
     if total > len(nodes):
         logger.warning(
             "item {} has {} field values but only {} fetched; a field may be missed",
-            node.get("id"), total, len(nodes),
+            node.get("id"),
+            total,
+            len(nodes),
         )
     for fv in nodes:
         fname = (fv.get("field") or {}).get("name")
@@ -408,7 +441,11 @@ def _parse_item(
     num = content.get("number", 0)
     kep = f"{repo}#{num}" if ctype == "Issue" and repo else ""
     kep_author = (content.get("author") or {}).get("login", "")
-    kep_assignees = ",".join(u["login"] for u in content.get("assignees", {}).get("nodes", [])) if ctype == "Issue" else ""
+    kep_assignees = (
+        ",".join(u["login"] for u in content.get("assignees", {}).get("nodes", []))
+        if ctype == "Issue"
+        else ""
+    )
     return BoardItem(
         item_id=node["id"],
         content_type=ctype,
@@ -429,6 +466,7 @@ def _parse_item(
 
 def _parse_pr(pr: dict) -> PRInfo:
     from .logic import CommentInfo
+
     author = (pr.get("author") or {}).get("login", "")
     assignees = ",".join(u["login"] for u in pr.get("assignees", {}).get("nodes", []))
     comments = []
