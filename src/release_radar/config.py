@@ -1,4 +1,5 @@
 """Config + state file loading. State is a plain JSON dict persisted next to config."""
+
 from __future__ import annotations
 
 import json
@@ -28,11 +29,14 @@ class Config:
     field_docs_assignee: str
     field_docs_pr: str
     field_doc_status: str
+    field_docs_notes: str
     no_docs_status: str
     docs_assignees: list[str]
     deadline: str
-    cycle_start: str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
-    cycle_end: str    # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
+    cycle_start: (
+        str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
+    )
+    cycle_end: str  # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
     path: Path
 
     @classmethod
@@ -55,6 +59,7 @@ class Config:
             field_docs_assignee=fields.get("docs_assignee", "Docs Assignee"),
             field_docs_pr=fields.get("docs_pr", "Docs PR"),
             field_doc_status=fields.get("doc_status", "Doc Status"),
+            field_docs_notes=fields.get("docs_notes", "Docs Notes"),
             no_docs_status=str(raw.get("no_docs_status", "No docs needed")),
             docs_assignees=[str(x) for x in raw.get("docs_assignees", [])],
             deadline=raw.get("deadline", "placeholder_pr"),
@@ -70,9 +75,15 @@ class State:
 
     path: Path
     # keyed by KEP issue "owner/repo#num"
-    dismissed: dict[str, str] = field(default_factory=dict)        # kep -> note (hide whole row)
-    dismissed_prs: dict[str, str] = field(default_factory=dict)     # pr url -> kep (not a placeholder)
-    updated_board: dict[str, str] = field(default_factory=dict)    # kep -> pr url we wrote
+    dismissed: dict[str, str] = field(
+        default_factory=dict
+    )  # kep -> note (hide whole row)
+    dismissed_prs: dict[str, str] = field(
+        default_factory=dict
+    )  # pr url -> kep (not a placeholder)
+    updated_board: dict[str, str] = field(
+        default_factory=dict
+    )  # kep -> pr url we wrote
 
     @classmethod
     def load(cls, path: str | Path) -> "State":

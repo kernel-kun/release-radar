@@ -20,6 +20,7 @@ fields:
   docs_assignee: Docs Assignee
   docs_pr: Docs PR
   doc_status: Doc Status
+  docs_notes: Docs Notes
 
 # KEPs whose 'Doc Status' field equals this value need no docs — they're shown
 # as 'no docs needed' and skipped entirely (no PR is expected or looked for).
@@ -31,7 +32,7 @@ docs_assignees:
   - kernel-kun
   # - some-shadow
 
-# Which deadline window's rules to run. Only 'placeholder_pr' is implemented.
+# Which deadline window's rules to run. Options: 'placeholder_pr' or 'pr_ready_for_review'.
 # Add new rule functions in logic.py and register them in DEADLINE_RULES.
 deadline: placeholder_pr
 
