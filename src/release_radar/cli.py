@@ -61,18 +61,21 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     templates_dir = Path("templates")
     templates_dir.mkdir(exist_ok=True)
 
-    default_template = templates_dir / "pr_ready_for_review_reminder.md"
-    if not default_template.exists():
+    templates = list(templates_dir.glob("*.md"))
+
+    if not templates:
+        default_template = templates_dir / "pr_ready_for_review_reminder.md"
         default_template.write_text(
-            "Hi @{pr_author},\n\n"
-            "This is a reminder that the Docs PR ready for review deadline is approaching. "
-            "Please check if this PR is ready to be marked as ready for review and update its draft status if so.\n\n"
-            "Assignee: @{pr_assignees}\n"
-            "KEP Assignee: @{kep_assignees}\n"
-            "KEP Title: {kep_title}\n"
-            "KEP URL: {kep_url}\n\n"
+            "Hi @{pr_author} :wave:! v1.37 Docs team here\n\n"
+            "We noticed that this Pull Request is currently in the **Draft** state.\n"
+            "If you haven't already, please go ahead and add the required documentation changes and move this PR from a `Draft` to `Open` state.\n\n"
+            "> [!IMPORTANT]\n"
+            "> **Upcoming Docs Deadlines**:\n"
+            "> - **PR Ready for Review**: `Tuesday 28th July 2026`\n"
+            "> - **Docs Freeze**: `Wednesday 5th August 2026 (AoE) / Thursday 6th August 2026, 12:00 UTC`\n\n"
             "Thanks!\n"
         )
+        templates = [default_template]
 
     if template_arg:
         path = Path(template_arg)
@@ -80,14 +83,10 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
             raise FileNotFoundError(f"Template file not found: {template_arg}")
         return path, path.read_text()
 
-    templates = list(templates_dir.glob("*.md"))
     templates.sort()
 
-    if not templates:
-        return default_template, default_template.read_text()
-
     if not sys.stdin.isatty():
-        return default_template, default_template.read_text()
+        return templates[0], templates[0].read_text()
 
     from rich.console import Console
     from rich.panel import Panel
