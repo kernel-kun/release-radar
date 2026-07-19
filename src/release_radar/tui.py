@@ -411,23 +411,28 @@ class TrackerApp(App):
             self.notify(f"{v.row.kep}: no discovered PR", severity="warning")
             return
 
+        is_merged = pr.state == "MERGED"
+        action_name = "Tracked for Docs Freeze" if is_merged else "Ready for Review"
+
         tc = pr.tracking_comments()
         if tc:
-            msg = f"Mark PR #{pr.number} as Ready for Review? This will update the first tracking comment."
+            msg = f"Mark PR #{pr.number} as {action_name}? This will update the first tracking comment."
         else:
-            msg = f"No past tracking comments found for PR #{pr.number}. Post a new ready-for-review comment?"
+            msg = f"No past tracking comments found for PR #{pr.number}. Post a new {action_name.lower()} comment?"
 
         def check_choice(confirmed: bool) -> None:
             if confirmed:
-                self.run_worker(lambda: self._mark_ready(v, pr, tc), thread=True, exclusive=True)
+                self.run_worker(lambda: self._mark_ready(v, pr, tc, is_merged), thread=True, exclusive=True)
 
         self.push_screen(ConfirmationModal(msg), check_choice)
 
-    def _mark_ready(self, v: Verdict, pr: PRInfo, tc: list[CommentInfo]) -> None:
+    def _mark_ready(self, v: Verdict, pr: PRInfo, tc: list[CommentInfo], is_merged: bool) -> None:
         try:
             import json
             import re
             from datetime import datetime, timezone
+
+            action_name = "Tracked for Docs Freeze" if is_merged else "Ready for Review"
 
             if tc:
                 first_comment = tc[0]
@@ -450,16 +455,16 @@ class TrackerApp(App):
                     new_body = f"{body}\n\n{new_meta_str}"
 
                 self.gh.update_comment(first_comment.id, new_body)
-                self.call_from_thread(self.notify, f"Updated first comment to mark PR #{pr.number} as Ready for Review.")
+                self.call_from_thread(self.notify, f"Updated first comment to mark PR #{pr.number} as {action_name}.")
             else:
                 meta = {
                     "sent_at": datetime.now(timezone.utc).isoformat(),
                     "reminder_number": 1,
                     "ready_for_review": True
                 }
-                comment_body = f"This PR is marked as Ready for Review from our side.\n\n<!-- release-radar: {json.dumps(meta)} -->"
+                comment_body = f"This PR is marked as {action_name} from our side.\n\n<!-- release-radar: {json.dumps(meta)} -->"
                 self.gh.add_comment(pr.id, comment_body)
-                self.call_from_thread(self.notify, f"Posted ready-for-review comment to PR #{pr.number}.")
+                self.call_from_thread(self.notify, f"Posted {action_name.lower()} comment to PR #{pr.number}.")
 
             self.call_from_thread(self.action_rescan)
         except Exception as e:
