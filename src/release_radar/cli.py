@@ -57,10 +57,95 @@ def _report(cfg: Config, state: State) -> int:
     return 1 if actionable else 0
 
 
+def select_template(template_arg: str | None) -> tuple[Path, str]:
+    templates_dir = Path("templates")
+    templates_dir.mkdir(exist_ok=True)
+
+    default_template = templates_dir / "pr_ready_for_review_reminder.md"
+    if not default_template.exists():
+        default_template.write_text(
+            "Hi @{pr_author},\n\n"
+            "This is a reminder that the Docs PR ready for review deadline is approaching. "
+            "Please check if this PR is ready to be marked as ready for review and update its draft status if so.\n\n"
+            "Assignee: @{pr_assignees}\n"
+            "KEP Assignee: @{kep_assignees}\n"
+            "KEP Title: {kep_title}\n"
+            "KEP URL: {kep_url}\n\n"
+            "Thanks!\n"
+        )
+
+    if template_arg:
+        path = Path(template_arg)
+        if not path.exists():
+            raise FileNotFoundError(f"Template file not found: {template_arg}")
+        return path, path.read_text()
+
+    templates = list(templates_dir.glob("*.md"))
+    templates.sort()
+
+    if not templates:
+        return default_template, default_template.read_text()
+
+    if not sys.stdin.isatty():
+        return default_template, default_template.read_text()
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+
+    console = Console()
+    console.print("\n[bold cyan]Available Markdown Templates:[/]")
+    for i, t in enumerate(templates):
+        console.print(f"  [bold green]{i + 1}[/]: {t.name}")
+
+    while True:
+        try:
+            choice = input(f"Select a template (1-{len(templates)}) [1]: ").strip()
+            if not choice:
+                idx = 0
+                break
+            idx = int(choice) - 1
+            if 0 <= idx < len(templates):
+                break
+        except (ValueError, KeyboardInterrupt, EOFError) as e:
+            if isinstance(e, (KeyboardInterrupt, EOFError)):
+                sys.exit(0)
+            pass
+        console.print("[red]Invalid choice. Please try again.[/]")
+
+    selected = templates[idx]
+    raw_content = selected.read_text()
+
+    dummy_vars = {
+        "pr_author": "pr-author-username",
+        "pr_assignees": "shadow1, shadow2",
+        "pr_status": "Draft",
+        "kep_author": "kep-author-username",
+        "kep_assignees": "shadow1, shadow2",
+        "kep_title": "Sample KEP Title",
+        "kep_url": "https://github.com/kubernetes/enhancements/issues/123",
+    }
+    try:
+        preview_content = raw_content.format(**dummy_vars)
+    except Exception as e:
+        preview_content = f"Error rendering preview variables: {e}\n\nRaw Content:\n{raw_content}"
+
+    console.print("\n[bold cyan]Template Preview (Rendered GFM):[/]")
+    console.print(Panel(Markdown(preview_content), title=f"Preview: {selected.name}", subtitle="Press Enter to accept or Ctrl+C to abort"))
+    try:
+        input()
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Aborted.[/]")
+        sys.exit(0)
+
+    return selected, raw_content
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="release-radar", description=__doc__)
     p.add_argument("-c", "--config", default=_DEFAULT_CONFIG, help="config YAML path")
     p.add_argument("-s", "--state", default=_DEFAULT_STATE, help="state JSON path")
+    p.add_argument("-t", "--template", help="path to markdown template file")
     p.add_argument("--no-tui", action="store_true", help="print a report instead of the TUI")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     p.add_argument("--check", action="store_true", help="run internal logic self-test and exit")
@@ -86,6 +171,10 @@ def main() -> None:
 
     from .github import GitHub, MissingScopeError
 
+    template_content = ""
+    if cfg.deadline == "pr_ready_for_review":
+        _, template_content = select_template(args.template)
+
     try:
         if args.no_tui:
             sys.exit(_report(cfg, state))
@@ -94,7 +183,7 @@ def main() -> None:
 
         gh = GitHub()
         try:
-            TrackerApp(cfg, state, gh).run()
+            TrackerApp(cfg, state, gh, template_content=template_content).run()
         finally:
             gh.close()
             state.save()

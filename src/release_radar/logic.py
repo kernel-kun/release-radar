@@ -34,6 +34,8 @@ class Status(str, Enum):
     NO_PR = "no_pr"          # no PR found anywhere -> authors haven't opened one
     BAD_PR = "bad_pr"        # in-cycle PR found but wrong base / closed -> review candidate
     NO_DOCS = "no_docs"      # board 'Doc Status' = 'No docs needed' -> not tracked
+    MERGED = "merged"
+    CLOSED = "closed"
 
 
 # ordering for display: worst/most-actionable first
@@ -42,20 +44,36 @@ STATUS_ORDER = {
     Status.BAD_PR: 1,
     Status.NO_PR: 2,
     Status.NEEDS_BOARD: 3,
-    Status.MEETS: 4,
-    Status.NO_DOCS: 5,   # not actionable, sort last
+    Status.CLOSED: 4,
+    Status.MEETS: 5,
+    Status.MERGED: 6,
+    Status.NO_DOCS: 7,
 }
 
 
 @dataclass
+class CommentInfo:
+    id: str
+    body: str
+    created_at: str
+    updated_at: str
+    author: str
+
+
+@dataclass
 class PRInfo:
+    id: str
     number: int
     url: str
     base_ref: str
     state: str          # OPEN | CLOSED | MERGED
     is_draft: bool
     repo: str           # nameWithOwner
+    title: str = ""
     created_at: str = ""  # ISO 8601; used to gate against the cycle window
+    author: str = ""
+    assignees: str = ""
+    comments: list[CommentInfo] = field(default_factory=list)
 
     def acceptable(self, dest_branch: str) -> bool:
         # placeholder PR: open (draft or ready) against the dev branch. MERGED also fine.
@@ -63,6 +81,38 @@ class PRInfo:
             self.base_ref == dest_branch
             and self.state in ("OPEN", "MERGED")
         )
+
+    def tracking_comments(self) -> list[CommentInfo]:
+        return [c for c in self.comments if "<!-- release-radar:" in c.body]
+
+    def reminder_count(self) -> int:
+        tc = self.tracking_comments()
+        if not tc:
+            return 0
+        import re
+        import json
+        m = re.search(r"<!--\s*release-radar:\s*({.*?})\s*-->", tc[0].body)
+        if m:
+            try:
+                return json.loads(m.group(1)).get("reminder_number", 0)
+            except Exception:
+                pass
+        return len(tc)
+
+    def is_marked_ready(self) -> bool:
+        tc = self.tracking_comments()
+        if not tc:
+            return False
+        import re
+        import json
+        m = re.search(r"<!--\s*release-radar:\s*({.*?})\s*-->", tc[0].body)
+        if m:
+            try:
+                data = json.loads(m.group(1))
+                return data.get("ready_for_review", False) or data.get("ready", False)
+            except Exception:
+                pass
+        return False
 
 
 @dataclass
@@ -72,6 +122,9 @@ class KepRow:
     url: str
     assignee: str            # resolved Docs Assignee field value ("" if none)
     board_docs_pr: str       # raw 'Docs PR' field value on the board ("" if empty)
+    board_docs_notes: str = ""  # raw 'Docs Notes' field value on the board
+    kep_author: str = ""
+    kep_assignees: str = ""
     item_id: str = ""        # ProjectV2Item id (needed for board writes)
     discovered_pr: PRInfo | None = None
     # PRs we saw but rejected (closed / wrong branch), for the warning column
@@ -85,6 +138,7 @@ class Verdict:
     detail: str                  # what/why: the finding
     action: str = ""             # what to do next (the action item)
     suggested_pr_url: str = ""   # populated when status == NEEDS_BOARD
+    suggested_docs_notes: str = "" # populated for board status writeback
 
     @property
     def sort_key(self) -> tuple[int, str]:
@@ -166,10 +220,85 @@ def evaluate_placeholder_pr(row: KepRow, dest_branch: str) -> Verdict:
     )
 
 
+def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
+    """PR-Ready-for-Review deadline rule.
+
+    Checks:
+    - If PR is Merged -> mark as Merged.
+    - If PR is Closed -> mark as Closed (attention needed).
+    - If Draft/Open: Compare board's 'Docs Notes' against expected notes:
+      - If merged: `✅ Merged` (handled above)
+      - If draft: `🔴 Draft PR`
+      - If open:
+        - If verified/reviewed: `🟢 PR Review for Review`
+        - Else: `🟠 {count} Reminder Sent`
+    """
+    pr = row.discovered_pr
+
+    if pr is None:
+        if row.rejected_prs:
+            worst = row.rejected_prs[0]
+            return Verdict(
+                row, Status.BAD_PR,
+                detail=f"PR #{worst.number} exists but targets wrong branch/state",
+                action="Confirm target branch or retarget it."
+            )
+        return Verdict(
+            row, Status.NO_PR,
+            detail="no website PR linked from this KEP",
+            action="Ping author to open a docs PR."
+        )
+
+    if pr.state == "MERGED":
+        expected = "✅ Merged"
+        if row.board_docs_notes != expected:
+            return Verdict(
+                row, Status.NEEDS_BOARD,
+                detail=f"PR #{pr.number} is merged; board notes is '{row.board_docs_notes}'",
+                action="Update board Docs Notes to '✅ Merged' (press 'u' then 'a')",
+                suggested_docs_notes=expected
+            )
+        return Verdict(
+            row, Status.MERGED,
+            detail=f"PR #{pr.number} is merged and board matches",
+            action=""
+        )
+
+    if pr.state == "CLOSED":
+        return Verdict(
+            row, Status.CLOSED,
+            detail=f"PR #{pr.number} is CLOSED (attention needed!)",
+            action="Replace with correct open/draft/merged PR on the board."
+        )
+
+    # Open or Draft
+    if pr.is_draft:
+        expected = "🔴 Draft PR"
+    else:
+        if pr.is_marked_ready():
+            expected = "🟢 PR Review for Review"
+        else:
+            expected = f"🟠 {pr.reminder_count()} Reminder Sent"
+
+    if row.board_docs_notes != expected:
+        return Verdict(
+            row, Status.NEEDS_BOARD,
+            detail=f"PR #{pr.number} expected notes: '{expected}'; board Notes: '{row.board_docs_notes}'",
+            action=f"Update board Docs Notes to '{expected}' (press 'u' then 'a')",
+            suggested_docs_notes=expected
+        )
+
+    return Verdict(
+        row, Status.MEETS,
+        detail=f"PR #{pr.number} is on board with notes: '{expected}'",
+        action=""
+    )
+
+
 # deadline name -> rule fn(row, dest_branch) -> Verdict
-# One rule today; add PR-ready / docs-freeze rules here when those windows arrive.
 DEADLINE_RULES = {
     "placeholder_pr": evaluate_placeholder_pr,
+    "pr_ready_for_review": evaluate_pr_ready_for_review,
 }
 
 
@@ -192,7 +321,7 @@ def _demo() -> None:
     dup = "github.com/kubernetes/website/pull/7 and kubernetes/website#7"
     assert find_pr_numbers(dup, repo) == [7]
 
-    base = dict(url="https://github.com/kubernetes/website/pull/9",
+    base = dict(id="node_id", url="https://github.com/kubernetes/website/pull/9",
                 repo=repo, number=9)
     ok = PRInfo(base_ref="dev-1.37", state="OPEN", is_draft=True, **base)
     assert ok.acceptable("dev-1.37")

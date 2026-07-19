@@ -1,35 +1,44 @@
 # release-radar
 
 Tracks a Kubernetes release project-board view against that view's deadline
-rules, and flags what needs attention. The first rule (`placeholder_pr`) checks
-whether the KEPs on the board have a docs **placeholder PR** open against
-`dev-<release>` in `kubernetes/website` before the docs deadline; more views and
-deadline rules can be added (see [Adding another deadline](#adding-another-deadline)).
+rules, and flags what needs attention. It supports two main deadline rules configured via `deadline` in `config.yaml`:
+
+1. `placeholder_pr`: Checks whether KEPs on the board have a docs **placeholder PR** open against `dev-<release>` in `kubernetes/website` before the docs deadline.
+2. `pr_ready_for_review`: Checks and tracks whether placeholder PRs are ready for review by posting messages, tracking reminders, and syncing state with the board's `Docs Notes` field.
 
 For each KEP row assigned to a configured docs shadow it:
 
-1. discovers a `kubernetes/website` PR — via the KEP issue's timeline
-   (cross-referenced / connected PRs), then the description, then **new**
-   comments since the last run (resume cursor persisted in `state.json`);
+1. discovers a `kubernetes/website` PR — via the KEP issue's timeline (cross-referenced / connected PRs), then the description, then comments;
 2. checks the PR is acceptable (base branch `dev-1.37`, not closed);
-3. compares against the board's `Docs PR` field and classifies the row:
+3. evaluates it against the active deadline's rule and classifies the row.
 
-   | status | meaning |
-   | --- | --- |
-   | `meets` | acceptable PR, already on the board |
-   | `needs_board` | acceptable PR found, board `Docs PR` empty → offer to write it |
-   | `mismatch` | board points at a *different* PR → warn, probe |
-   | `bad_pr` | an in-cycle PR exists but on the wrong base branch / closed → review candidate |
-   | `no_pr` | authors haven't opened a website PR yet |
-   | `no_docs` | board `Doc Status` = `No docs needed` → not tracked, no PR expected |
+## Deadline Modes
 
-`needs_board` rows can be written back to the board from the TUI.
+### 1. Placeholder PR (`placeholder_pr`)
+Compares discovered PR against the board's `Docs PR` field:
 
-A PR is only surfaced as a `bad_pr` review candidate if it was opened inside the
-release cycle window (`cycle_start`/`cycle_end` in the config); a stale PR from a
-previous cycle is ignored and the row falls back to `no_pr`. On a `bad_pr` row,
-`d` dismisses just that candidate PR (remembered in `state.json`) while the KEP
-stays tracked for a real one.
+| status | meaning |
+| --- | --- |
+| `meets` | acceptable PR, already on the board |
+| `needs_board` | acceptable PR found, board `Docs PR` empty → offer to write it |
+| `mismatch` | board points at a *different* PR → warn, probe |
+| `bad_pr` | an in-cycle PR exists but on the wrong base branch / closed → review candidate |
+| `no_pr` | authors haven't opened a website PR yet |
+| `no_docs` | board `Doc Status` = `No docs needed` → not tracked, no PR expected |
+
+### 2. PR Ready for Review (`pr_ready_for_review`)
+Uses GitHub comments to offload tracking state invisibly using tracking comments containing metadata:
+`<!-- release-radar: {"reminder_number": N, "ready_for_review": bool} -->`.
+
+Compares the state against the board's `Docs Notes` field and suggests writebacks:
+
+- **Merged PR**: Classified as `merged`. Expected board notes: `✅ Merged`.
+- **Closed PR**: Classified as `closed` (attention needed).
+- **Draft PR**: Classified as `meets` (or `needs_board` if notes are out of sync). Expected board notes: `🔴 Draft PR`.
+- **Open PR (No verification)**: Classified as `meets` / `needs_board`. Expected board notes: `🟠 {TUI_comment_count} Reminder Sent`.
+- **Open PR (Marked Ready)**: Classified as `meets` / `needs_board`. Expected board notes: `🟢 PR Review for Review`.
+
+---
 
 ## Setup
 
@@ -56,27 +65,33 @@ uv run release-radar --no-tui   # plain report (CI/logs), exit 1 if rows need at
 uv run release-radar --check    # logic self-test, no network
 ```
 
-TUI keys: `r` rescan · `u` queue/unqueue a board write · `a` apply queued writes ·
-`d` dismiss (the candidate PR on a `bad_pr` row, else the whole KEP; remembered) ·
-`o` open the KEP · `O` open its PR (accepted or flagged candidate) · `q` quit.
+TUI keys: 
+- `R` ➡️ rescan
+- `u` ➡️ queue/unqueue a board write
+- `a` ➡️ apply queued board writes
+- `d` ➡️ dismiss (the candidate PR on a `bad_pr` row, else the KEP; remembered)
+- `o` ➡️ open the KEP issue
+- `O` ➡️ open its PR (accepted or flagged candidate)
+- `m` ➡️ send reminder message to the PR (only in `pr_ready_for_review` mode; checks WIP/TODO title confidence)
+- `h` ➡️ view chronological reminder comment history popup (only in `pr_ready_for_review` mode)
+- `r` ➡️ mark PR as ready for review (only in `pr_ready_for_review` mode; edits the last tracking comment on GitHub)
+- `q` ➡️ quit
 
 > On a corporate network with TLS interception, prefix `uv` commands with
 > `--system-certs` (e.g. `uv run --system-certs …`).
 
 ## Config
 
-See `config.example.yaml`. Field names (`Docs Assignee`, `Docs PR`, `Doc Status`)
+See `config.example.yaml`. Field names (`Docs Assignee`, `Docs PR`, `Doc Status`, `Docs Notes`)
 are case-sensitive — confirm against the live board with
 `gh project field-list <n> --owner <org>`. `cycle_start`/`cycle_end` bound the
-release window used to filter stale PRs; `no_docs_status` is the `Doc Status`
-value that marks a KEP as needing no docs.
+release window used to filter stale PRs.
 
 ## Adding another deadline
 
-`deadline: placeholder_pr` selects a rule in `logic.py::DEADLINE_RULES`. Add a
+`deadline: <name>` selects a rule in `logic.py::DEADLINE_RULES`. Add a
 `evaluate_<name>(row, dest_branch) -> Verdict` function, register it in that
-dict, and set `deadline:` in the config. Everything else (board read, PR
-discovery, TUI, write-back) is deadline-agnostic.
+dict, and set `deadline:` in the config.
 
 ## Layout
 
@@ -84,8 +99,8 @@ discovery, TUI, write-back) is deadline-agnostic.
 logic.py      pure decisions (rules, PR matching) — unit-testable, `--check`
 github.py     GraphQL client (schema-verified queries + writes)
 scan.py       orchestration: board → filter by assignee → discover PR (threaded) → evaluate
-writeback.py  populate the 'Docs PR' field for queued rows
-tui.py        Textual UI
-cli.py        entry point (+ --no-tui rich report)
+writeback.py  populate board fields for queued rows
+tui.py        Textual UI + modal history and confirmation popups
+cli.py        entry point (+ template selection & rich GFM preview rendering)
 config.py     config + state file
 ```

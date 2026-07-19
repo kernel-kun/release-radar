@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 
 from .config import Config, State
-from .github import BoardItem, GitHub
+from .github import BoardItem, GitHub, _parse_pr
 from .logic import KepRow, PRInfo, Status, Verdict, evaluate, find_pr_numbers
 
 
@@ -102,7 +102,19 @@ def _hydrate(gh: GitHub, cfg: Config, num: int) -> list[PRInfo]:
     query ($owner: String!, $repo: String!, $num: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $num) {
-          number url baseRefName state isDraft createdAt repository { nameWithOwner }
+          id number url baseRefName state isDraft createdAt
+          author { login }
+          assignees(first: 10) { nodes { login } }
+          repository { nameWithOwner }
+          comments(first: 100) {
+            nodes {
+              id
+              body
+              createdAt
+              updatedAt
+              author { login }
+            }
+          }
         }
       }
     }"""
@@ -111,9 +123,7 @@ def _hydrate(gh: GitHub, cfg: Config, num: int) -> list[PRInfo]:
         pr = data["repository"]["pullRequest"]
         if not pr:
             return []
-        return [PRInfo(pr["number"], pr["url"], pr["baseRefName"], pr["state"],
-                       pr["isDraft"], pr["repository"]["nameWithOwner"],
-                       pr.get("createdAt", "") or "")]
+        return [_parse_pr(pr)]
     except Exception as e:  # a referenced number may be an issue, not a PR
         logger.debug("hydrate #{} failed: {}", num, e)
         return []
@@ -136,6 +146,7 @@ def run_scan(
     items = gh.board_items(
         cfg.owner, cfg.owner_is_org, cfg.project_number,
         cfg.field_docs_assignee, cfg.field_docs_pr, cfg.field_doc_status,
+        cfg.field_docs_notes,
         query=view_query,
     )
     keps = [
@@ -152,6 +163,9 @@ def run_scan(
         row = KepRow(
             kep=item.kep, title=item.title, url=item.url,
             assignee=item.assignee, board_docs_pr=item.docs_pr,
+            board_docs_notes=item.docs_notes,
+            kep_author=item.kep_author,
+            kep_assignees=item.kep_assignees,
             item_id=item.item_id,
         )
         # 'No docs needed' on the board -> no PR is expected; skip discovery.
@@ -187,7 +201,7 @@ def _demo() -> None:
     from pathlib import Path
 
     def pr(url, day):
-        return PRInfo(number=int(url.rsplit("/", 1)[1]), url=url, base_ref="main",
+        return PRInfo(id="node_id", number=int(url.rsplit("/", 1)[1]), url=url, base_ref="main",
                       state="CLOSED", is_draft=False, repo="kubernetes/website",
                       created_at=day)
 
@@ -198,8 +212,8 @@ def _demo() -> None:
     cur = pr("https://github.com/kubernetes/website/pull/50000", "2026-06-01T00:00:00Z")
     assert not _in_cycle(old, C)          # prior-cycle PR -> filtered out
     assert _in_cycle(cur, C)              # this-cycle PR -> kept
-    assert PRInfo(1, "u", "main", "OPEN", False, "r").created_at == ""  # unknown date
-    assert _in_cycle(PRInfo(1, "u", "main", "OPEN", False, "r"), C)     # unknown -> keep
+    assert PRInfo("node_id", 1, "u", "main", "OPEN", False, "r").created_at == ""  # unknown date
+    assert _in_cycle(PRInfo("node_id", 1, "u", "main", "OPEN", False, "r"), C)     # unknown -> keep
 
     st = State(path=Path("/dev/null"))
     assert _candidate_rejects([old, cur], C, st) == [cur]   # only in-cycle survives
@@ -209,7 +223,7 @@ def _demo() -> None:
     # Invariant: the window gates only *rejected* PRs. A PR correctly targeting
     # dev-1.37 is "acceptable" -> becomes `chosen` -> never sees the window,
     # even if it was opened years before cycle_start.
-    correct_but_old = PRInfo(7, "https://github.com/kubernetes/website/pull/7",
+    correct_but_old = PRInfo("node_id", 7, "https://github.com/kubernetes/website/pull/7",
                              "dev-1.37", "OPEN", False, "kubernetes/website",
                              "2022-01-01T00:00:00Z")
     chosen, rejected = _pick_pr([correct_but_old], "dev-1.37")

@@ -63,7 +63,7 @@ query ($owner: String!, $number: Int!, $after: String, $q: String!) {
           }
           content {
             __typename
-            ... on Issue { number title url body repository { nameWithOwner } author { login } }
+            ... on Issue { number title url body repository { nameWithOwner } author { login } assignees(first: 10) { nodes { login } } }
             ... on PullRequest { number title url repository { nameWithOwner } }
             ... on DraftIssue { title }
           }
@@ -93,7 +93,28 @@ query ($owner: String!, $repo: String!, $num: Int!, $after: String) {
 """
 
 _PR_FRAG = """__typename
-  ... on PullRequest { number url baseRefName state isDraft createdAt repository { nameWithOwner } }"""
+  ... on PullRequest {
+    id
+    number
+    url
+    title
+    baseRefName
+    state
+    isDraft
+    createdAt
+    author { login }
+    assignees(first: 10) { nodes { login } }
+    repository { nameWithOwner }
+    comments(first: 100) {
+      nodes {
+        id
+        body
+        createdAt
+        updatedAt
+        author { login }
+      }
+    }
+  }"""
 
 _COMMENTS_Q = """
 query ($owner: String!, $repo: String!, $num: Int!, $after: String) {
@@ -104,6 +125,22 @@ query ($owner: String!, $repo: String!, $num: Int!, $after: String) {
         nodes { createdAt updatedAt body }
       }
     }
+  }
+}
+"""
+
+_ADD_COMMENT_M = """
+mutation ($subjectId: ID!, $body: String!) {
+  addComment(input: { subjectId: $subjectId, body: $body }) {
+    subject { id }
+  }
+}
+"""
+
+_UPDATE_COMMENT_M = """
+mutation ($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) {
+    issueComment { id }
   }
 }
 """
@@ -166,6 +203,9 @@ class BoardItem:
     docs_pr: str        # resolved Docs PR value
     doc_status: str     # resolved Doc Status value
     repo: str
+    docs_notes: str = ""
+    kep_author: str = ""
+    kep_assignees: str = ""
 
 
 def gh_token() -> str:
@@ -236,6 +276,7 @@ class GitHub:
     def board_items(
         self, owner: str, is_org: bool, number: int,
         assignee_field: str, docs_pr_field: str, doc_status_field: str = "",
+        docs_notes_field: str = "",
         query: str = "",
     ) -> list[BoardItem]:
         q = self._root(_ITEMS_Q, is_org)
@@ -248,7 +289,7 @@ class GitHub:
             for node in conn["nodes"]:
                 if node.get("isArchived"):
                     continue
-                item = _parse_item(node, assignee_field, docs_pr_field, doc_status_field)
+                item = _parse_item(node, assignee_field, docs_pr_field, doc_status_field, docs_notes_field)
                 if item:
                     out.append(item)
             page = conn["pageInfo"]
@@ -313,6 +354,12 @@ class GitHub:
     def set_text_field(self, project_id: str, item_id: str, field_id: str, text: str) -> None:
         self.query(_SET_TEXT_M, projectId=project_id, itemId=item_id, fieldId=field_id, text=text)
 
+    def add_comment(self, subject_id: str, body: str) -> None:
+        self.query(_ADD_COMMENT_M, subjectId=subject_id, body=body)
+
+    def update_comment(self, comment_id: str, body: str) -> None:
+        self.query(_UPDATE_COMMENT_M, id=comment_id, body=body)
+
 
 def _field_value(node: dict) -> str:
     t = node["__typename"]
@@ -331,11 +378,11 @@ def _field_value(node: dict) -> str:
 
 
 def _parse_item(
-    node: dict, assignee_field: str, docs_pr_field: str, doc_status_field: str = ""
+    node: dict, assignee_field: str, docs_pr_field: str, doc_status_field: str = "", docs_notes_field: str = ""
 ) -> BoardItem | None:
     content = node.get("content") or {}
     ctype = content.get("__typename", "")
-    assignee = docs_pr = doc_status = ""
+    assignee = docs_pr = doc_status = docs_notes = ""
     fvals = node.get("fieldValues", {})
     total = fvals.get("totalCount", 0)
     nodes = fvals.get("nodes", [])
@@ -355,9 +402,13 @@ def _parse_item(
             docs_pr = _field_value(fv)
         elif doc_status_field and fname == doc_status_field:
             doc_status = _field_value(fv)
+        elif docs_notes_field and fname == docs_notes_field:
+            docs_notes = _field_value(fv)
     repo = (content.get("repository") or {}).get("nameWithOwner", "")
     num = content.get("number", 0)
     kep = f"{repo}#{num}" if ctype == "Issue" and repo else ""
+    kep_author = (content.get("author") or {}).get("login", "")
+    kep_assignees = ",".join(u["login"] for u in content.get("assignees", {}).get("nodes", [])) if ctype == "Issue" else ""
     return BoardItem(
         item_id=node["id"],
         content_type=ctype,
@@ -369,17 +420,39 @@ def _parse_item(
         assignee=assignee,
         docs_pr=docs_pr,
         doc_status=doc_status,
+        docs_notes=docs_notes,
+        kep_author=kep_author,
+        kep_assignees=kep_assignees,
         repo=repo,
     )
 
 
 def _parse_pr(pr: dict) -> PRInfo:
+    from .logic import CommentInfo
+    author = (pr.get("author") or {}).get("login", "")
+    assignees = ",".join(u["login"] for u in pr.get("assignees", {}).get("nodes", []))
+    comments = []
+    for c in pr.get("comments", {}).get("nodes", []):
+        comments.append(
+            CommentInfo(
+                id=c["id"],
+                body=c["body"],
+                created_at=c["createdAt"],
+                updated_at=c["updatedAt"],
+                author=(c.get("author") or {}).get("login", ""),
+            )
+        )
     return PRInfo(
+        id=pr["id"],
         number=pr["number"],
         url=pr["url"],
         base_ref=pr["baseRefName"],
         state=pr["state"],
         is_draft=pr["isDraft"],
         repo=pr["repository"]["nameWithOwner"],
+        title=pr.get("title", ""),
         created_at=pr.get("createdAt", "") or "",
+        author=author,
+        assignees=assignees,
+        comments=comments,
     )

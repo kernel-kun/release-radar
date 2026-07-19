@@ -28,6 +28,7 @@ class Config:
     field_docs_assignee: str
     field_docs_pr: str
     field_doc_status: str
+    field_docs_notes: str
     no_docs_status: str
     docs_assignees: list[str]
     deadline: str
@@ -55,6 +56,7 @@ class Config:
             field_docs_assignee=fields.get("docs_assignee", "Docs Assignee"),
             field_docs_pr=fields.get("docs_pr", "Docs PR"),
             field_doc_status=fields.get("doc_status", "Doc Status"),
+            field_docs_notes=fields.get("docs_notes", "Docs Notes"),
             no_docs_status=str(raw.get("no_docs_status", "No docs needed")),
             docs_assignees=[str(x) for x in raw.get("docs_assignees", [])],
             deadline=raw.get("deadline", "placeholder_pr"),
