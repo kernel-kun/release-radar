@@ -522,7 +522,7 @@ class HistoryModal(ModalScreen[None]):
         text-align: center;
         margin-bottom: 1;
         background: $accent;
-        color: $accent-contrast;
+        color: $text;
         padding: 0 1;
     }
     #comments_list {
