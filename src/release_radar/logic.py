@@ -235,15 +235,8 @@ def evaluate_placeholder_pr(row: KepRow, dest_branch: str) -> Verdict:
 def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
     """PR-Ready-for-Review deadline rule.
 
-    Checks:
-    - If PR is Merged -> mark as Merged.
-    - If PR is Closed -> mark as Closed (attention needed).
-    - If Draft/Open: Compare board's 'Docs Notes' against expected notes:
-      - If merged: `✅ Merged` (handled above)
-      - If draft: `🔴 Draft PR`
-      - If open:
-        - If verified/reviewed: `🟢 PR Review for Review`
-        - Else: `🟠 {count} Reminder Sent`
+    Expected board notes format:
+    {color_dot} ({pr_state}) Reminder Sent - {count}
     """
     pr = row.discovered_pr
 
@@ -263,16 +256,35 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
             action="Ping author to open a docs PR.",
         )
 
+    # Determine state, color, and expected board note
     if pr.state == "MERGED":
-        expected = "✅ Merged"
-        if row.board_docs_notes != expected:
-            return Verdict(
-                row,
-                Status.NEEDS_BOARD,
-                detail=f"PR #{pr.number} is merged; board notes is '{row.board_docs_notes}'",
-                action="Update board Docs Notes to '✅ Merged' (press 'u' then 'a')",
-                suggested_docs_notes=expected,
-            )
+        state_str = "Merged"
+        color_dot = "✅"
+    elif pr.state == "CLOSED":
+        state_str = "Closed"
+        color_dot = "🔴"
+    elif pr.is_draft:
+        state_str = "Draft"
+        color_dot = "🔴"
+    else:
+        state_str = "Open"
+        if pr.is_marked_ready():
+            color_dot = "🟢"
+        else:
+            color_dot = "🟠"
+
+    expected = f"{color_dot} ({state_str}) Reminder Sent - {pr.reminder_count()}"
+
+    if row.board_docs_notes != expected:
+        return Verdict(
+            row,
+            Status.NEEDS_BOARD,
+            detail=f"PR #{pr.number} expected notes: '{expected}'; board Notes: '{row.board_docs_notes}'",
+            action=f"Update board Docs Notes to '{expected}' (press 'u' then 'a')",
+            suggested_docs_notes=expected,
+        )
+
+    if pr.state == "MERGED":
         return Verdict(
             row,
             Status.MERGED,
@@ -286,24 +298,6 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
             Status.CLOSED,
             detail=f"PR #{pr.number} is CLOSED (attention needed!)",
             action="Replace with correct open/draft/merged PR on the board.",
-        )
-
-    # Open or Draft
-    if pr.is_draft:
-        expected = "🔴 Draft PR"
-    else:
-        if pr.is_marked_ready():
-            expected = "🟢 PR Ready for Review"
-        else:
-            expected = f"🟠 {pr.reminder_count()} Reminder Sent"
-
-    if row.board_docs_notes != expected:
-        return Verdict(
-            row,
-            Status.NEEDS_BOARD,
-            detail=f"PR #{pr.number} expected notes: '{expected}'; board Notes: '{row.board_docs_notes}'",
-            action=f"Update board Docs Notes to '{expected}' (press 'u' then 'a')",
-            suggested_docs_notes=expected,
         )
 
     return Verdict(
