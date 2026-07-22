@@ -31,7 +31,7 @@ Uses GitHub comments to offload tracking state invisibly using tracking comments
 `<!-- release-radar: {"reminder_number": N, "ready_for_review": bool} -->`.
 
 Compares the state against the board's `Docs Notes` field and suggests writebacks using the format:
-`{color_dot} ({pr_state}) Reminder Sent - {count}`
+`{color_dot} ({pr_state}) {count} Reminder Sent`
 
 Where:
 - **`{color_dot}`** is:

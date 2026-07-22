@@ -273,7 +273,7 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
         else:
             color_dot = "🟠"
 
-    expected = f"{color_dot} ({state_str}) Reminder Sent - {pr.reminder_count()}"
+    expected = f"{color_dot} ({state_str}) {pr.reminder_count()} Reminder Sent"
 
     if row.board_docs_notes != expected:
         return Verdict(
