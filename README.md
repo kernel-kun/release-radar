@@ -30,16 +30,16 @@ Compares discovered PR against the board's `Docs PR` field:
 Uses GitHub comments to offload tracking state invisibly using tracking comments containing metadata:
 `<!-- release-radar: {"reminder_number": N, "ready_for_review": bool} -->`.
 
-Compares the state against the board's `Docs Notes` field and suggests writebacks using the format:
-`{color_dot} ({pr_state}) {count} Reminder Sent`
+Compares the state against the board's `Docs Notes` field and suggests writebacks:
+- For Merged PRs: `✅ (Merged)`
+- For Draft, Closed, or Open PRs: `{color_dot} ({pr_state}) {count} Reminder Sent`
 
 Where:
 - **`{color_dot}`** is:
-  - `✅` for Merged
   - `🟢` for Open and marked ready
   - `🟠` for Open and not marked ready
   - `🔴` for Draft or Closed
-- **`{pr_state}`** is: `Merged`, `Closed`, `Draft`, or `Open`
+- **`{pr_state}`** is: `Closed`, `Draft`, or `Open`
 - **`{count}`** is the number of reminder comments sent to the author.
 
 ---

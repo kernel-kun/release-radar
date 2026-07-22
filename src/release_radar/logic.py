@@ -256,24 +256,23 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
             action="Ping author to open a docs PR.",
         )
 
-    # Determine state, color, and expected board note
+    # Determine expected board note based on state
     if pr.state == "MERGED":
-        state_str = "Merged"
-        color_dot = "✅"
-    elif pr.state == "CLOSED":
-        state_str = "Closed"
-        color_dot = "🔴"
-    elif pr.is_draft:
-        state_str = "Draft"
-        color_dot = "🔴"
+        expected = "✅ (Merged)"
     else:
-        state_str = "Open"
-        if pr.is_marked_ready():
-            color_dot = "🟢"
+        if pr.state == "CLOSED":
+            state_str = "Closed"
+            color_dot = "🔴"
+        elif pr.is_draft:
+            state_str = "Draft"
+            color_dot = "🔴"
         else:
-            color_dot = "🟠"
-
-    expected = f"{color_dot} ({state_str}) {pr.reminder_count()} Reminder Sent"
+            state_str = "Open"
+            if pr.is_marked_ready():
+                color_dot = "🟢"
+            else:
+                color_dot = "🟠"
+        expected = f"{color_dot} ({state_str}) {pr.reminder_count()} Reminder Sent"
 
     if row.board_docs_notes != expected:
         return Verdict(
