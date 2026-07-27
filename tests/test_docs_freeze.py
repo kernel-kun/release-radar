@@ -10,6 +10,7 @@ from src.release_radar.logic import (
     Verdict,
     evaluate,
     evaluate_pr_ready_for_review,
+    format_mentions,
     render_docs_freeze_checklist,
 )
 from src.release_radar.tui import VerdictSortKey
@@ -237,7 +238,7 @@ class TestDocsFreeze(unittest.TestCase):
             discovered_prs=[pr],
         )
         rendered = render_docs_freeze_checklist(row, self.dest_branch, "July 28", "August 5")
-        self.assertIn("Hello kep_author_1 👋!", rendered)
+        self.assertIn("Hello @kep_author_1 👋!", rendered)
         self.assertIn("- [x] The docs PR(s) to the `k/website` repo", rendered)
         self.assertIn("- [x] The docs PR(s) is created against the dev-1.37 branch.", rendered)
         self.assertIn("- [x] The docs PR(s) are in Ready to Review state", rendered)
@@ -265,6 +266,12 @@ class TestDocsFreeze(unittest.TestCase):
         key_tracked_desc = VerdictSortKey(v_tracked, sort_specs_desc)
         key_at_risk_desc = VerdictSortKey(v_at_risk, sort_specs_desc)
         self.assertTrue(key_at_risk_desc < key_tracked_desc)
+
+    def test_format_mentions(self):
+        self.assertEqual(format_mentions("user1"), "@user1")
+        self.assertEqual(format_mentions("user1, user2"), "@user1 @user2")
+        self.assertEqual(format_mentions("@user1 @user2"), "@user1 @user2")
+        self.assertEqual(format_mentions(""), "none")
 
 
 if __name__ == "__main__":

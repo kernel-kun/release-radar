@@ -148,13 +148,22 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     raw_content = selected.read_text()
 
     dummy_vars = {
-        "pr_author": "pr-author-username",
-        "pr_assignees": "shadow1, shadow2",
+        "pr_author": "@pr-author-username",
+        "pr_assignees": "@shadow1 @shadow2",
         "pr_status": "Draft",
-        "kep_author": "kep-author-username",
-        "kep_assignees": "shadow1, shadow2",
+        "kep_author": "@kep-author-username",
+        "kep_assignees": "@shadow1 @shadow2",
         "kep_title": "Sample KEP Title",
         "kep_url": "https://github.com/kubernetes/enhancements/issues/123",
+        "doc/KEP owners": "@pr-author-username",
+        "release_version": "1.37",
+        "ready_review_deadline": "Tuesday 28th July 2026",
+        "docs_freeze_deadline": "Wednesday 5th August 2026",
+        "crit1": "x",
+        "crit2": "x",
+        "crit3": " ",
+        "crit4": " ",
+        "docs_freeze_status": "At Risk for Docs Freeze",
     }
 
     class SafeFormatter(dict):

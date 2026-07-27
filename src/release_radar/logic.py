@@ -371,6 +371,26 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
     )
 
 
+def format_mentions(raw: str) -> str:
+    """Format comma/space-separated logins into space-separated @login mentions.
+
+    Examples:
+      "user1, user2" -> "@user1 @user2"
+      "user1" -> "@user1"
+      "" -> "none"
+    """
+    if not raw or not raw.strip():
+        return "none"
+    logins = [
+        part.strip().lstrip("@")
+        for part in raw.replace(",", " ").split()
+        if part.strip()
+    ]
+    if not logins:
+        return "none"
+    return " ".join(f"@{u}" for u in logins)
+
+
 def render_docs_freeze_checklist(
     row: KepRow,
     dest_branch: str,
@@ -392,9 +412,12 @@ def render_docs_freeze_checklist(
 
     release_ver = dest_branch.removeprefix("dev-") if dest_branch.startswith("dev-") else dest_branch
     status_str = row.docs_freeze_status
+    author_str = format_mentions(row.kep_author)
+    if author_str == "none":
+        author_str = "doc/KEP owners"
 
     return (
-        f"Hello {row.kep_author or '{doc/KEP owners}'} 👋! {release_ver} team here,\n\n"
+        f"Hello {author_str} 👋! v{release_ver} Docs team here,\n\n"
         f"As we approach:\n"
         f"- Ready to Review deadline: {ready_deadline}\n"
         f"- Docs Freeze deadline: {freeze_deadline}\n\n"

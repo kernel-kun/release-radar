@@ -29,7 +29,7 @@ from textual.widgets import Button, DataTable, Header, Label, Select, Static
 
 from .config import Config, State
 from .github import GitHub
-from .logic import CommentInfo, PRInfo, Status, Verdict, evaluate
+from .logic import CommentInfo, PRInfo, Status, Verdict, evaluate, format_mentions
 from .scan import run_scan
 from .writeback import apply_writes
 
@@ -502,12 +502,27 @@ class TrackerApp(App):
             c3 = c1 and all(p.state in ("OPEN", "MERGED") and not p.is_draft for p in prs)
             c4 = c1 and all(p.is_docs_freeze_ready for p in prs)
 
+            pr_author_mentions = format_mentions(pr.author if pr else "")
+            pr_assignees_mentions = format_mentions(pr.assignees if pr else "")
+            kep_author_mentions = format_mentions(v.row.kep_author)
+            kep_assignees_mentions = format_mentions(v.row.kep_assignees)
+
+            owners_mentions = (
+                pr_author_mentions
+                if pr_author_mentions != "none"
+                else (
+                    kep_author_mentions
+                    if kep_author_mentions != "none"
+                    else "doc/KEP owners"
+                )
+            )
+
             variables = {
-                "pr_author": pr.author,
-                "pr_assignees": pr.assignees or "none",
+                "pr_author": pr_author_mentions,
+                "pr_assignees": pr_assignees_mentions,
                 "pr_status": "Draft" if pr.is_draft else "Ready for review",
-                "kep_author": v.row.kep_author or "none",
-                "kep_assignees": v.row.kep_assignees or "none",
+                "kep_author": kep_author_mentions,
+                "kep_assignees": kep_assignees_mentions,
                 "kep_title": v.row.title,
                 "kep_url": v.row.url,
                 "release_version": release_ver,
@@ -518,7 +533,7 @@ class TrackerApp(App):
                 "crit3": "x" if c3 else " ",
                 "crit4": "x" if c4 else " ",
                 "docs_freeze_status": v.row.docs_freeze_status,
-                "doc/KEP owners": f"@{pr.author}" if pr.author else "KEP Owners",
+                "doc/KEP owners": owners_mentions,
                 "future-release": f"v{release_ver}",
             }
 
