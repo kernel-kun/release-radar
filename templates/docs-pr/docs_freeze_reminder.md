@@ -1,5 +1,5 @@
-Hello {doc/KEP owners} 👋! {release_version} Docs team here,
-
+Hello @{pr_author} @{kep_assignees} 👋! {release_version} Docs team here,
+ 
 As we approach:
 - Ready to Review deadline: {ready_review_deadline}
 - Docs Freeze deadline: {docs_freeze_deadline}
