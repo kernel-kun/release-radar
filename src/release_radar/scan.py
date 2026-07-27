@@ -49,21 +49,23 @@ def _candidate_rejects(
     ]
 
 
-def _pick_pr(prs: list[PRInfo], dest_branch: str) -> tuple[PRInfo | None, list[PRInfo]]:
-    """Choose the best acceptable PR; return (chosen, rejected)."""
+def _pick_pr(
+    prs: list[PRInfo], dest_branch: str
+) -> tuple[PRInfo | None, list[PRInfo], list[PRInfo]]:
+    """Choose the best acceptable PR; return (chosen, rejected, acceptable)."""
     acceptable = [p for p in prs if p.acceptable(dest_branch)]
     rejected = [p for p in prs if not p.acceptable(dest_branch)]
     if acceptable:
         # prefer OPEN over MERGED, then highest number (latest)
         acceptable.sort(key=lambda p: (p.state != "OPEN", -p.number))
-        return acceptable[0], rejected
-    return None, rejected
+        return acceptable[0], rejected, acceptable
+    return None, rejected, []
 
 
 def _discover_pr_for(
     gh: GitHub, cfg: Config, state: State, item: BoardItem
-) -> tuple[PRInfo | None, list[PRInfo]]:
-    """Find a website PR for a KEP item."""
+) -> tuple[PRInfo | None, list[PRInfo], list[PRInfo]]:
+    """Find website PR(s) for a KEP item."""
     if cfg.deadline == "pr_ready_for_review":
         # Strictly assume the Board is the source of truth, looking only at the board's Docs PR field.
         nums = find_pr_numbers(item.docs_pr, cfg.website_repo)
@@ -82,18 +84,11 @@ def _discover_pr_for(
         if not any(p.number == num for p in prs):
             prs.extend(_hydrate(gh, cfg, num))
 
-    chosen, rejected = _pick_pr(prs, cfg.dest_branch)
+    chosen, rejected, acceptable = _pick_pr(prs, cfg.dest_branch)
     if chosen:
-        return chosen, rejected
+        return chosen, rejected, acceptable
 
     # 3) still nothing -> scan the KEP's comments for a PR link.
-    # This is a *search*, and it must stay idempotent across runs: a comment can
-    # announce a PR that wasn't acceptable earlier (opened later / retargeted),
-    # and a bare "#123" in a website PR body resolves to website#123, so it never
-    # creates a timeline cross-reference back here — the PR link lives ONLY in a
-    # comment. We only reach this step while the KEP has no accepted PR yet, so
-    # re-reading all comments (after=None) each run is bounded and self-healing.
-    # A resume cursor here silently buried PRs once the newest comment was seen.
     bodies, _ = gh.new_comment_bodies(owner, repo, item.number, None)
     comment_nums: list[int] = []
     for body, _ in bodies:
@@ -116,6 +111,7 @@ def _hydrate(gh: GitHub, cfg: Config, num: int) -> list[PRInfo]:
           author { login }
           assignees(first: 10) { nodes { login } }
           repository { nameWithOwner }
+          labels(first: 100) { nodes { name } }
           comments(first: 100) {
             nodes {
               id
@@ -197,8 +193,9 @@ def run_scan(
                 detail=f"board 'Doc Status' = {cfg.no_docs_status!r}",
                 action="",
             )
-        chosen, rejected = _discover_pr_for(gh, cfg, state, item)
+        chosen, rejected, acceptable = _discover_pr_for(gh, cfg, state, item)
         row.discovered_pr = chosen
+        row.discovered_prs = acceptable
         row.rejected_prs = _candidate_rejects(rejected, cfg, state)
         return evaluate(cfg.deadline, row, cfg.dest_branch)
 
@@ -266,8 +263,8 @@ def _demo() -> None:
         "kubernetes/website",
         "2022-01-01T00:00:00Z",
     )
-    chosen, rejected = _pick_pr([correct_but_old], "dev-1.37")
-    assert chosen is correct_but_old and rejected == []
+    chosen, rejected, acceptable = _pick_pr([correct_but_old], "dev-1.37")
+    assert chosen is correct_but_old and rejected == [] and acceptable == [correct_but_old]
     print("scan._demo ok")
 
 

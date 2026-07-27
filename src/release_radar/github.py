@@ -107,6 +107,7 @@ _PR_FRAG = """__typename
     author { login }
     assignees(first: 10) { nodes { login } }
     repository { nameWithOwner }
+    labels(first: 100) { nodes { name } }
     comments(first: 100) {
       nodes {
         id
@@ -172,6 +173,12 @@ query ($owner: String!, $number: Int!) {
 _PR_NODE_Q = """
 query ($owner: String!, $repo: String!, $num: Int!) {
   repository(owner: $owner, name: $repo) { pullRequest(number: $num) { id } }
+}
+"""
+
+_ISSUE_NODE_Q = """
+query ($owner: String!, $repo: String!, $num: Int!) {
+  repository(owner: $owner, name: $repo) { issue(number: $num) { id } }
 }
 """
 
@@ -366,6 +373,10 @@ class GitHub:
         data = self.query(_PR_NODE_Q, owner=owner, repo=repo, num=num)
         return data["repository"]["pullRequest"]["id"]
 
+    def issue_node_id(self, owner: str, repo: str, num: int) -> str:
+        data = self.query(_ISSUE_NODE_Q, owner=owner, repo=repo, num=num)
+        return data["repository"]["issue"]["id"]
+
     def add_item(self, project_id: str, content_id: str) -> str:
         data = self.query(_ADD_ITEM_M, projectId=project_id, contentId=content_id)
         return data["addProjectV2ItemById"]["item"]["id"]
@@ -469,6 +480,7 @@ def _parse_pr(pr: dict) -> PRInfo:
 
     author = (pr.get("author") or {}).get("login", "")
     assignees = ",".join(u["login"] for u in pr.get("assignees", {}).get("nodes", []))
+    labels = [n["name"] for n in pr.get("labels", {}).get("nodes", []) if "name" in n]
     comments = []
     for c in pr.get("comments", {}).get("nodes", []):
         comments.append(
@@ -493,4 +505,5 @@ def _parse_pr(pr: dict) -> PRInfo:
         author=author,
         assignees=assignees,
         comments=comments,
+        labels=labels,
     )

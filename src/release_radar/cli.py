@@ -37,27 +37,47 @@ def _report(cfg: Config, state: State) -> int:
         Status.BAD_PR: "yellow",
         Status.NO_PR: "grey62",
         Status.NO_DOCS: "blue",
+        Status.MERGED: "green",
+        Status.CLOSED: "red",
     }
     table = Table(title=f"{cfg.deadline} · {cfg.project_url}")
     table.add_column("KEP", overflow="fold")
     table.add_column("Status")
+    if cfg.deadline == "pr_ready_for_review":
+        table.add_column("Labels")
+        table.add_column("Docs Freeze")
     table.add_column("Assignee")
     table.add_column("Finding", overflow="fold")
     table.add_column("Action item", overflow="fold")
     for v in verdicts:
-        table.add_row(
-            v.row.kep,
-            f"[{styles[v.status]}]{v.status.value}[/]",
-            v.row.assignee,
-            v.detail,
-            v.action or "[green]—[/]",
-        )
+        if cfg.deadline == "pr_ready_for_review":
+            pr = v.row.discovered_pr
+            labels_str = pr.label_display if pr else "—"
+            freeze_str = v.row.docs_freeze_status
+            freeze_styled = f"[green]{freeze_str}[/]" if freeze_str == "Tracked for Docs Freeze" else f"[yellow]{freeze_str}[/]"
+            table.add_row(
+                v.row.kep,
+                f"[{styles.get(v.status, 'white')}]{v.status.value}[/]",
+                labels_str,
+                freeze_styled,
+                v.row.assignee,
+                v.detail,
+                v.action or "[green]—[/]",
+            )
+        else:
+            table.add_row(
+                v.row.kep,
+                f"[{styles.get(v.status, 'white')}]{v.status.value}[/]",
+                v.row.assignee,
+                v.detail,
+                v.action or "[green]—[/]",
+            )
     console.print(table)
     actionable = sum(
         1
         for v in verdicts
         if v.status
-        in (Status.NEEDS_BOARD, Status.MISMATCH, Status.BAD_PR, Status.NO_PR)
+        in (Status.NEEDS_BOARD, Status.MISMATCH, Status.BAD_PR, Status.NO_PR, Status.CLOSED)
     )
     console.print(f"[bold]{actionable}[/] rows need attention.")
     return 1 if actionable else 0
@@ -67,19 +87,24 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     templates_dir = Path("templates")
     templates_dir.mkdir(exist_ok=True)
 
-    templates = list(templates_dir.glob("*.md"))
+    templates = list(templates_dir.rglob("*.md"))
 
     if not templates:
-        default_template = templates_dir / "pr_ready_for_review_reminder.md"
+        default_dir = templates_dir / "docs-pr"
+        default_dir.mkdir(exist_ok=True)
+        default_template = default_dir / "docs_freeze_reminder.md"
         default_template.write_text(
-            "Hi @{pr_author} :wave:! v1.37 Docs team here\n\n"
-            "We noticed that this Pull Request is currently in the **Draft** state.\n"
-            "If you haven't already, please go ahead and add the required documentation changes and move this PR from a `Draft` to `Open` state.\n\n"
-            "> [!IMPORTANT]\n"
-            "> **Upcoming Docs Deadlines**:\n"
-            "> - **PR Ready for Review**: `Tuesday 28th July 2026`\n"
-            "> - **Docs Freeze**: `Wednesday 5th August 2026 (AoE) / Thursday 6th August 2026, 12:00 UTC`\n\n"
-            "Thanks!\n"
+            "Hello {doc/KEP owners} 👋! {release_version} Docs team here,\n\n"
+            "As we approach:\n"
+            "- Ready to Review deadline: {ready_review_deadline}\n"
+            "- Docs Freeze deadline: {docs_freeze_deadline}\n\n"
+            "Here's where this enhancement currently stands:\n"
+            "- [{crit1}] The docs PR(s) to the `k/website` repo that are related to your enhancement are linked in the above issue description (for tracking purposes).\n"
+            "- [{crit2}] The docs PR(s) is created against the dev-{release_version} branch.\n"
+            "- [{crit3}] The docs PR(s) are in Ready to Review state wherein they are updated with all the changes required and marked ready to review.\n"
+            "- [{crit4}] The docs PR(s) are ready to be merged (they have `approved` and `lgtm` labels applied) by the Docs Freeze deadline.\n\n"
+            "The status of this enhancement is marked as {docs_freeze_status}.\n\n"
+            "If you anticipate missing docs freeze, you can file an [exception request](https://github.com/kubernetes/sig-release/blob/master/releases/EXCEPTIONS.md) in advance.\n"
         )
         templates = [default_template]
 
@@ -101,7 +126,8 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     console = Console()
     console.print("\n[bold cyan]Available Markdown Templates:[/]")
     for i, t in enumerate(templates):
-        console.print(f"  [bold green]{i + 1}[/]: {t.name}")
+        rel_name = str(t.relative_to(templates_dir))
+        console.print(f"  [bold green]{i + 1}[/]: {rel_name}")
 
     while True:
         try:
