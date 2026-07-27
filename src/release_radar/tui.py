@@ -766,7 +766,7 @@ class PostDestinationModal(ModalScreen[str | None]):
             )
             with Horizontal(id="dest_buttons"):
                 yield Button("PR Only", variant="primary", id="pr_btn")
-                yield Button("KEP Issue Only", variant="secondary", id="kep_btn")
+                yield Button("KEP Issue Only", variant="default", id="kep_btn")
                 yield Button("Both PR & KEP", variant="success", id="both_btn")
                 yield Button("Cancel", variant="error", id="cancel_btn")
 
