@@ -382,7 +382,7 @@ def render_docs_freeze_checklist(
     desc_prs = find_pr_numbers(row.kep_body, repo)
 
     # Criterion 1: PR linked in KEP issue description
-    c1 = bool(desc_prs) or bool(prs)
+    c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
     # Criterion 2: Target branch
     c2 = bool(prs) and all(p.base_ref == dest_branch for p in prs)
     # Criterion 3: Ready for review (Open or Merged, not Draft)

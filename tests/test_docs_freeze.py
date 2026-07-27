@@ -131,6 +131,24 @@ class TestDocsFreeze(unittest.TestCase):
         self.assertEqual(v.status, Status.MERGED)
         self.assertIn("Tracked for Docs Freeze", v.detail)
 
+    def test_merged_pr_unlinked_in_description_is_tracked(self):
+        pr = PRInfo(state="MERGED", is_draft=False, labels=[], **self.base_pr_args)
+        row = KepRow(
+            kep="kubernetes/enhancements#1",
+            title="Title",
+            url="url",
+            assignee="shadow",
+            kep_body="",  # Not linked in KEP description body
+            board_docs_pr=pr.url,
+            board_docs_notes="✅ (Merged)",
+            discovered_pr=pr,
+            discovered_prs=[pr],
+        )
+        self.assertEqual(row.docs_freeze_status, "Tracked for Docs Freeze")
+        rendered = render_docs_freeze_checklist(row, self.dest_branch)
+        self.assertIn("- [ ] The docs PR(s) to the `k/website` repo", rendered)
+        self.assertIn("The status of this enhancement is marked as Tracked for Docs Freeze.", rendered)
+
     def test_branch_mismatch_and_match(self):
         args = dict(self.base_pr_args)
         args["base_ref"] = "main"
