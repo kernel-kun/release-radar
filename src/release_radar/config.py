@@ -68,11 +68,20 @@ class Config:
             cycle_end=str(raw.get("cycle_end", "") or ""),
             ready_review_deadline=str(
                 d_dates.get("ready_for_review")
+                or d_dates.get("ready_to_review")
+                or d_dates.get("pr_ready_for_review")
+                or d_dates.get("ready_review_deadline")
+                or d_dates.get("ready_deadline")
+                or raw.get("ready_for_review")
+                or raw.get("ready_to_review")
                 or raw.get("ready_review_deadline")
                 or "Tuesday 28th July 2026"
             ),
             docs_freeze_deadline=str(
                 d_dates.get("docs_freeze")
+                or d_dates.get("docs_freeze_deadline")
+                or d_dates.get("freeze_deadline")
+                or raw.get("docs_freeze")
                 or raw.get("docs_freeze_deadline")
                 or "Wednesday 5th August 2026"
             ),
