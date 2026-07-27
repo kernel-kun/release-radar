@@ -33,9 +33,8 @@ class Config:
     no_docs_status: str
     docs_assignees: list[str]
     deadline: str
-    cycle_start: (
-        str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
-    )
+    cycle_start: str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
+    cycle_end: str  # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
     ready_review_deadline: str = ""
     docs_freeze_deadline: str = ""
     path: Path = field(default_factory=lambda: Path("config.yaml"))
