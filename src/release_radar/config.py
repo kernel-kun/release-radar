@@ -33,11 +33,11 @@ class Config:
     no_docs_status: str
     docs_assignees: list[str]
     deadline: str
-    cycle_start: (
-        str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
-    )
+    cycle_start: str  # ISO date "YYYY-MM-DD" or "" — PRs before this are prior-cycle noise
     cycle_end: str  # ISO date "YYYY-MM-DD" or "" — PRs after this aren't for this cycle
-    path: Path
+    ready_review_deadline: str = ""
+    docs_freeze_deadline: str = ""
+    path: Path = field(default_factory=lambda: Path("config.yaml"))
 
     @classmethod
     def load(cls, path: str | Path) -> "Config":
@@ -47,6 +47,7 @@ class Config:
         if not m:
             raise ValueError(f"Could not parse project_url: {raw['project_url']!r}")
         fields = raw.get("fields", {})
+        d_dates = raw.get("deadlines", {})
         return cls(
             owner=m["owner"],
             owner_is_org=m["kind"] == "orgs",
@@ -65,6 +66,25 @@ class Config:
             deadline=raw.get("deadline", "placeholder_pr"),
             cycle_start=str(raw.get("cycle_start", "") or ""),
             cycle_end=str(raw.get("cycle_end", "") or ""),
+            ready_review_deadline=str(
+                d_dates.get("ready_for_review")
+                or d_dates.get("ready_to_review")
+                or d_dates.get("pr_ready_for_review")
+                or d_dates.get("ready_review_deadline")
+                or d_dates.get("ready_deadline")
+                or raw.get("ready_for_review")
+                or raw.get("ready_to_review")
+                or raw.get("ready_review_deadline")
+                or "Tuesday 28th July 2026"
+            ),
+            docs_freeze_deadline=str(
+                d_dates.get("docs_freeze")
+                or d_dates.get("docs_freeze_deadline")
+                or d_dates.get("freeze_deadline")
+                or raw.get("docs_freeze")
+                or raw.get("docs_freeze_deadline")
+                or "Wednesday 5th August 2026"
+            ),
             path=path,
         )
 

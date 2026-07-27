@@ -8,25 +8,37 @@ Keys:
      tracked); on any other row hides the whole KEP. Remembered in state.
   a  apply queued board writes
   o  open the KEP issue          O  open its PR (accepted or flagged candidate)
+  s  sort table (multi-column)
   q  quit (state is saved on exit)
 """
 
 from __future__ import annotations
 
+import json
+import re
 import webbrowser
+from datetime import datetime, timezone
 
 from loguru import logger
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Header, Static, Label, Button
-from textual.containers import Vertical, Horizontal, ScrollableContainer
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, DataTable, Header, Label, Select, Static
 
 from .config import Config, State
 from .github import GitHub
-from .logic import Status, Verdict, evaluate, CommentInfo, PRInfo
-from .scan import run_scan
+from .logic import (
+    CommentInfo,
+    PRInfo,
+    Status,
+    Verdict,
+    evaluate,
+    find_pr_numbers,
+    format_mentions,
+)
+from .scan import _hydrate, run_scan
 from .writeback import apply_writes
 
 _STATUS_STYLE = {
@@ -45,6 +57,57 @@ def _shorten(url: str, width: int = 40) -> str:
     if not url:
         return ""
     return url if len(url) <= width else "…" + url[-(width - 1) :]
+
+
+def _get_col_val(v: Verdict, col: str):
+    pr = v.row.discovered_pr
+    if col == "Docs Freeze":
+        return 0 if v.row.docs_freeze_status == "Tracked for Docs Freeze" else 1
+    if col == "KEP":
+        return v.row.kep
+    if col == "PR State":
+        if not pr:
+            return 4
+        if pr.state == "MERGED":
+            return 0
+        if pr.state == "OPEN" and not pr.is_draft:
+            return 1
+        if pr.is_draft:
+            return 2
+        return 3
+    if col == "Labels":
+        if not pr:
+            return 3
+        if pr.has_lgtm and pr.has_approved:
+            return 0
+        if pr.has_lgtm:
+            return 1
+        if pr.has_approved:
+            return 2
+        return 3
+    if col == "Status":
+        from .logic import STATUS_ORDER
+
+        return STATUS_ORDER.get(v.status, 99)
+    if col == "Reminders":
+        return pr.reminder_count() if pr else 0
+    if col == "Assignee":
+        return v.row.assignee
+    return v.row.kep
+
+
+class VerdictSortKey:
+    def __init__(self, v: Verdict, specs: list[tuple[str, bool]]):
+        self.v = v
+        self.specs = specs
+
+    def __lt__(self, other: "VerdictSortKey") -> bool:
+        for col, asc in self.specs:
+            val1 = _get_col_val(self.v, col)
+            val2 = _get_col_val(other.v, col)
+            if val1 != val2:
+                return val1 < val2 if asc else val2 < val1
+        return False
 
 
 class MultilineFooter(Static):
@@ -101,6 +164,7 @@ class TrackerApp(App):
         Binding("a", "apply", "Apply writes"),
         Binding("o", "open_kep", "Open KEP"),
         Binding("O", "open_pr", "Open PR"),
+        Binding("s", "sort_table", "Multi-column sort"),
         Binding("m", "send_message", "Send message/reminder"),
         Binding("h", "view_history", "View message history"),
         Binding("r", "mark_ready", "Mark PR as ready for review"),
@@ -117,6 +181,10 @@ class TrackerApp(App):
         self.verdicts: list[Verdict] = []
         self.queued: set[str] = set()  # kep keys queued for board write
         self.template_content = template_content
+        self.sort_specs: list[tuple[str, bool]] = [
+            ("Docs Freeze", True),
+            ("KEP", True),
+        ]
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -134,6 +202,8 @@ class TrackerApp(App):
                 "Q",
                 "Docs PR",
                 "PR State",
+                "Labels",
+                "Docs Freeze",
                 "Reminders",
                 "Assignee",
                 "Board 'Docs Notes'",
@@ -163,20 +233,31 @@ class TrackerApp(App):
         self.run_worker(self._scan, thread=True, exclusive=True)
 
     def _scan(self) -> None:
-        verdicts = run_scan(self.cfg, self.state, self.gh)
-        self.state.save()
-        self.call_from_thread(self._populate, verdicts)
+        try:
+            verdicts = run_scan(self.cfg, self.state, self.gh)
+            self.state.save()
+            self.call_from_thread(self._populate, verdicts)
+        except Exception as e:
+            self.call_from_thread(self._handle_scan_error, str(e))
+
+    def _handle_scan_error(self, err_msg: str) -> None:
+        self.notify(f"Scan Error: {err_msg}", severity="error", timeout=10)
+        self.query_one("#summary", Static).update(
+            f"[bold red]Scan Failed:[/] {err_msg}"
+        )
 
     def _populate(self, verdicts: list[Verdict]) -> None:
         # hide dismissed rows
         self.verdicts = [v for v in verdicts if v.row.kep not in self.state.dismissed]
+        self.verdicts.sort(key=lambda v: VerdictSortKey(v, self.sort_specs))
+
         t = self.query_one(DataTable)
         saved_row = t.cursor_row  # preserve cursor across rebuilds
         t.clear()
         counts: dict[Status, int] = {}
         for v in self.verdicts:
             counts[v.status] = counts.get(v.status, 0) + 1
-            label, style = _STATUS_STYLE[v.status]
+            label, style = _STATUS_STYLE.get(v.status, (v.status.value, "white"))
             queued = "→ write" if v.row.kep in self.queued else ""
             if self.cfg.deadline == "pr_ready_for_review":
                 pr = v.row.discovered_pr
@@ -195,7 +276,7 @@ class TrackerApp(App):
                 if not pr:
                     pr_state_styled = Text("—", style="grey62")
                 elif pr.state == "MERGED":
-                    pr_state_styled = Text("Merged", style="green")
+                    pr_state_styled = Text("Merged", style="bold green")
                 elif pr.state == "CLOSED":
                     pr_state_styled = Text("Closed", style="red")
                 elif pr.is_draft:
@@ -203,12 +284,34 @@ class TrackerApp(App):
                 else:
                     pr_state_styled = Text("Open", style="green")
 
+                # Labels Badge Display
+                if not pr or pr.state == "MERGED":
+                    labels_styled = Text("—", style="grey62")
+                else:
+                    if pr.has_lgtm and pr.has_approved:
+                        labels_styled = Text("[LGTM] [APPROVED]", style="bold green")
+                    elif pr.has_lgtm:
+                        labels_styled = Text("[LGTM]", style="bold green")
+                    elif pr.has_approved:
+                        labels_styled = Text("[APPROVED]", style="bold cyan")
+                    else:
+                        labels_styled = Text("none", style="dim grey62")
+
+                # Docs Freeze Status Display
+                df_status = v.row.docs_freeze_status
+                if df_status == "Tracked for Docs Freeze":
+                    df_styled = Text("Tracked", style="bold green")
+                else:
+                    df_styled = Text("At Risk", style="bold yellow")
+
                 t.add_row(
                     v.row.kep,
                     Text(label, style=style),
                     Text(queued, style="cyan"),
                     pr_link_styled,
                     pr_state_styled,
+                    labels_styled,
+                    df_styled,
                     Text(reminders, style="magenta" if reminders != "—" else "grey62"),
                     v.row.assignee,
                     board,
@@ -231,10 +334,14 @@ class TrackerApp(App):
         summary = "  ".join(
             f"[{_STATUS_STYLE[s][1]}]{_STATUS_STYLE[s][0]}: {counts.get(s, 0)}[/]"
             for s in Status
+            if s in counts
+        )
+        sort_str = ", ".join(
+            f"{c} {'ASC' if a else 'DESC'}" for c, a in self.sort_specs
         )
         self.query_one("#summary", Static).update(
             Text.from_markup(
-                f"{len(self.verdicts)} KEPs   {summary}   ({len(self.queued)} queued)"
+                f"{len(self.verdicts)} KEPs   {summary}   ({len(self.queued)} queued)   Sort: [cyan]{sort_str}[/cyan]"
             )
         )
         self._show_detail(self._selected())
@@ -256,10 +363,22 @@ class TrackerApp(App):
         if v is None:
             panel.update("")
             return
-        label, style = _STATUS_STYLE[v.status]
+        label, style = _STATUS_STYLE.get(v.status, (v.status.value, "white"))
         lines = [
             Text.assemble(
-                (label, f"bold {style}"), "  ", (v.row.kep, "bold"), f"  {v.row.title}"
+                (label, f"bold {style}"),
+                "  ",
+                (v.row.kep, "bold"),
+                f"  {v.row.title}",
+            ),
+            Text.assemble(
+                ("Docs Freeze Status: ", "bold"),
+                (
+                    v.row.docs_freeze_status,
+                    "green"
+                    if v.row.docs_freeze_status == "Tracked for Docs Freeze"
+                    else "yellow",
+                ),
             ),
             Text.assemble(("Finding: ", "bold"), v.detail),
         ]
@@ -289,14 +408,11 @@ class TrackerApp(App):
         v = self._selected()
         if not v:
             return
-        # BAD_PR rows carry candidate PR(s) that aren't the placeholder: dismiss
-        # those specific PRs so the KEP keeps being tracked for a real one.
         if v.status is Status.BAD_PR and v.row.rejected_prs:
             n = len(v.row.rejected_prs)
             for pr in v.row.rejected_prs:
                 self.state.dismissed_prs[pr.url] = v.row.kep
             v.row.rejected_prs = []
-            # re-evaluate this one row locally (no network) so it drops to NO_PR now
             fresh = evaluate(self.cfg.deadline, v.row, self.cfg.dest_branch)
             self.verdicts = [
                 fresh if x.row.kep == v.row.kep else x for x in self.verdicts
@@ -317,7 +433,6 @@ class TrackerApp(App):
         v = self._selected()
         if not v:
             return
-        # the accepted PR, else a flagged review candidate
         pr = v.row.discovered_pr or (
             v.row.rejected_prs[0] if v.row.rejected_prs else None
         )
@@ -325,6 +440,14 @@ class TrackerApp(App):
             webbrowser.open(pr.url)
         else:
             self.notify(f"{v.row.kep}: no PR to open", severity="warning")
+
+    def action_sort_table(self) -> None:
+        def on_sort(new_specs: list[tuple[str, bool]] | None) -> None:
+            if new_specs:
+                self.sort_specs = new_specs
+                self._populate(self.verdicts)
+
+        self.push_screen(SortModal(self.sort_specs), on_sort)
 
     def action_apply(self) -> None:
         if not self.queued:
@@ -372,34 +495,81 @@ class TrackerApp(App):
             self.notify("No template selected for this session.", severity="warning")
             return
 
-        title_upper = pr.title.upper()
-        is_wip = "WIP" in title_upper or "TODO" in title_upper
+        def on_destination_chosen(target: str | None) -> None:
+            if not target:
+                return
+            self.run_worker(
+                lambda: self._send_message(v, pr, target),
+                thread=True,
+                exclusive=True,
+            )
 
-        if pr.is_draft:
-            msg = f"Send reminder to Draft PR #{pr.number}? (Confidence: 100%)"
-        elif is_wip:
-            msg = f"Send reminder to WIP/TODO PR #{pr.number}? (Low Confidence - Manual Check Required!)"
-        else:
-            msg = f"Send reminder to PR #{pr.number}? (Confidence: Standard)"
+        self.push_screen(PostDestinationModal(v.row.kep, pr.number), on_destination_chosen)
 
-        def check_choice(confirmed: bool) -> None:
-            if confirmed:
-                self.run_worker(
-                    lambda: self._send_message(v, pr), thread=True, exclusive=True
-                )
-
-        self.push_screen(ConfirmationModal(msg), check_choice)
-
-    def _send_message(self, v: Verdict, pr: PRInfo) -> None:
+    def _send_message(self, v: Verdict, pr: PRInfo, target: str) -> None:
         try:
+            release_ver = (
+                self.cfg.dest_branch.removeprefix("dev-")
+                if self.cfg.dest_branch.startswith("dev-")
+                else self.cfg.dest_branch
+            )
+            prs = v.row.all_target_prs
+            repo = prs[0].repo if prs else "kubernetes/website"
+            desc_prs = find_pr_numbers(v.row.kep_body, repo)
+            c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
+            c2 = bool(prs) and all(p.base_ref == self.cfg.dest_branch for p in prs)
+            c3 = bool(prs) and all(
+                p.state == "MERGED"
+                or (p.state == "OPEN" and not p.is_draft and p.is_marked_ready())
+                for p in prs
+            )
+            c4 = bool(prs) and all(p.is_docs_freeze_ready for p in prs)
+
+            pr_author_mentions = format_mentions(pr.author if pr else "")
+            pr_assignees_mentions = format_mentions(pr.assignees if pr else "")
+            kep_author_mentions = format_mentions(v.row.kep_author)
+            kep_assignees_mentions = format_mentions(v.row.kep_assignees)
+
+            owners_mentions = (
+                pr_author_mentions
+                if pr_author_mentions != "none"
+                else (
+                    kep_author_mentions
+                    if kep_author_mentions != "none"
+                    else "doc/KEP owners"
+                )
+            )
+
             variables = {
-                "pr_author": pr.author,
-                "pr_assignees": pr.assignees or "none",
+                "pr_author": pr_author_mentions,
+                "pr_assignees": pr_assignees_mentions,
+                "pr_url": pr.url if pr else "",
+                "pr_number": pr.number if pr else "",
+                "pr_num": pr.number if pr else "",
                 "pr_status": "Draft" if pr.is_draft else "Ready for review",
-                "kep_author": v.row.kep_author or "none",
-                "kep_assignees": v.row.kep_assignees or "none",
+                "kep_author": kep_author_mentions,
+                "kep_assignees": kep_assignees_mentions,
                 "kep_title": v.row.title,
                 "kep_url": v.row.url,
+                "release_version": release_ver,
+                "ready_review_deadline": self.cfg.ready_review_deadline,
+                "ready_for_review_deadline": self.cfg.ready_review_deadline,
+                "ready_for_review": self.cfg.ready_review_deadline,
+                "ready_to_review_deadline": self.cfg.ready_review_deadline,
+                "ready_to_review": self.cfg.ready_review_deadline,
+                "ready_deadline": self.cfg.ready_review_deadline,
+                "Ready to review deadline": self.cfg.ready_review_deadline,
+                "docs_freeze_deadline": self.cfg.docs_freeze_deadline,
+                "docs_freeze": self.cfg.docs_freeze_deadline,
+                "freeze_deadline": self.cfg.docs_freeze_deadline,
+                "Docs Freeze deadline": self.cfg.docs_freeze_deadline,
+                "crit1": "x" if c1 else " ",
+                "crit2": "x" if c2 else " ",
+                "crit3": "x" if c3 else " ",
+                "crit4": "x" if c4 else " ",
+                "docs_freeze_status": v.row.docs_freeze_status,
+                "doc/KEP owners": owners_mentions,
+                "future-release": f"v{release_ver}",
             }
 
             class SafeFormatter(dict):
@@ -408,58 +578,80 @@ class TrackerApp(App):
 
             body = self.template_content.format_map(SafeFormatter(**variables))
 
-            import json
-            import re
-            from datetime import datetime, timezone
+            targets_to_post = []
+            if target in ("pr", "both"):
+                targets_to_post.append(("pr", pr.id, f"PR #{pr.number}"))
+            if target in ("kep", "both") and v.row.kep:
+                try:
+                    repo_part, num_part = v.row.kep.split("#", 1)
+                    owner, repo_name = repo_part.split("/", 1)
+                    kep_id = self.gh.issue_node_id(owner, repo_name, int(num_part))
+                    targets_to_post.append(("kep", kep_id, f"KEP {v.row.kep}"))
+                except Exception as ex:
+                    logger.error("Could not fetch KEP node ID: {}", ex)
 
             tc = pr.tracking_comments()
-            if not tc:
-                meta = {
-                    "sent_at": datetime.now(timezone.utc).isoformat(),
-                    "reminder_number": 1,
-                    "ready_for_review": False,
-                }
-                comment_body = f"{body}\n\n<!-- release-radar: {json.dumps(meta)} -->"
-                self.gh.add_comment(pr.id, comment_body)
-                self.call_from_thread(
-                    self.notify, f"Posted first reminder to PR #{pr.number}"
-                )
-            else:
-                comment_body = f"{body}\n\n<!-- release-radar: subsequent -->"
-                self.gh.add_comment(pr.id, comment_body)
-
-                first_comment = tc[0]
-                orig_body = first_comment.body
-                m = re.search(r"<!--\s*release-radar:\s*({.*?})\s*-->", orig_body)
-                if m:
-                    try:
-                        meta = json.loads(m.group(1))
-                    except Exception:
-                        meta = {}
+            for t_kind, t_node_id, t_name in targets_to_post:
+                if not tc:
+                    meta = {
+                        "sent_at": datetime.now(timezone.utc).isoformat(),
+                        "reminder_number": 1,
+                        "ready_for_review": False,
+                        "docs_freeze_status": v.row.docs_freeze_status,
+                    }
+                    comment_body = f"{body}\n\n<!-- release-radar: {json.dumps(meta)} -->"
+                    self.gh.add_comment(t_node_id, comment_body)
                 else:
-                    meta = {}
+                    comment_body = f"{body}\n\n<!-- release-radar: subsequent -->"
+                    self.gh.add_comment(t_node_id, comment_body)
 
-                meta["reminder_number"] = meta.get("reminder_number", 1) + 1
-                new_meta_str = f"<!-- release-radar: {json.dumps(meta)} -->"
-                if m:
+                    first_comment = tc[0]
+                    orig_body = first_comment.body
+                    m = re.search(r"<!--\s*release-radar:\s*({.*?})\s*-->", orig_body)
+                    meta = json.loads(m.group(1)) if m else {}
+                    meta["reminder_number"] = meta.get("reminder_number", 1) + 1
+                    meta["docs_freeze_status"] = v.row.docs_freeze_status
+                    new_meta_str = f"<!-- release-radar: {json.dumps(meta)} -->"
                     new_body = (
                         orig_body[: m.start()] + new_meta_str + orig_body[m.end() :]
+                        if m
+                        else f"{orig_body}\n\n{new_meta_str}"
                     )
-                else:
-                    new_body = f"{orig_body}\n\n{new_meta_str}"
+                    self.gh.update_comment(first_comment.id, new_body)
 
-                self.gh.update_comment(first_comment.id, new_body)
-                self.call_from_thread(
-                    self.notify,
-                    f"Posted reminder #{meta['reminder_number']} and updated first comment metadata.",
-                )
-
-            self.call_from_thread(self.action_rescan)
+            posted_names = " & ".join(t[2] for t in targets_to_post)
+            self.call_from_thread(
+                self.notify, f"Posted Docs Freeze reminder to {posted_names}"
+            )
+            self._rescan_row(v)
         except Exception as e:
             logger.error("Failed to send message: {}", e)
             self.call_from_thread(
                 self.notify, f"Failed to send message: {e}", severity="error"
             )
+
+    def _rescan_row(self, v: Verdict) -> None:
+        """Re-scan and re-evaluate only the single row operated on, preserving API rate limit."""
+        try:
+            prs = []
+            for pr in v.row.all_target_prs:
+                prs.extend(_hydrate(self.gh, self.cfg, pr.number))
+            if prs:
+                v.row.discovered_pr = prs[0]
+                v.row.discovered_prs = prs
+
+            new_v = evaluate(self.cfg, v.row)
+
+            for i, item in enumerate(self.verdicts):
+                if item.row.kep == v.row.kep:
+                    self.verdicts[i] = new_v
+                    break
+
+            self.state.save()
+            self.call_from_thread(self._populate, self.verdicts)
+        except Exception as e:
+            logger.error("Failed single-row rescan for {}: {}", v.row.kep, e)
+            self.call_from_thread(self.action_rescan)
 
     def action_view_history(self) -> None:
         if self.cfg.deadline != "pr_ready_for_review":
@@ -516,10 +708,6 @@ class TrackerApp(App):
         self, v: Verdict, pr: PRInfo, tc: list[CommentInfo], is_merged: bool
     ) -> None:
         try:
-            import json
-            import re
-            from datetime import datetime, timezone
-
             action_name = "Tracked for Docs Freeze" if is_merged else "Ready for Review"
 
             if tc:
@@ -527,20 +715,16 @@ class TrackerApp(App):
                 body = first_comment.body
 
                 m = re.search(r"<!--\s*release-radar:\s*({.*?})\s*-->", body)
-                if m:
-                    try:
-                        meta = json.loads(m.group(1))
-                    except Exception:
-                        meta = {}
-                else:
-                    meta = {}
+                meta = json.loads(m.group(1)) if m else {}
 
                 meta["ready_for_review"] = True
+                meta["docs_freeze_status"] = v.row.docs_freeze_status
                 new_meta_str = f"<!-- release-radar: {json.dumps(meta)} -->"
-                if m:
-                    new_body = body[: m.start()] + new_meta_str + body[m.end() :]
-                else:
-                    new_body = f"{body}\n\n{new_meta_str}"
+                new_body = (
+                    body[: m.start()] + new_meta_str + body[m.end() :]
+                    if m
+                    else f"{body}\n\n{new_meta_str}"
+                )
 
                 self.gh.update_comment(first_comment.id, new_body)
                 self.call_from_thread(
@@ -552,6 +736,7 @@ class TrackerApp(App):
                     "sent_at": datetime.now(timezone.utc).isoformat(),
                     "reminder_number": 1,
                     "ready_for_review": True,
+                    "docs_freeze_status": v.row.docs_freeze_status,
                 }
                 comment_body = f"This PR is marked as {action_name} from our side.\n\n<!-- release-radar: {json.dumps(meta)} -->"
                 self.gh.add_comment(pr.id, comment_body)
@@ -560,7 +745,7 @@ class TrackerApp(App):
                     f"Posted {action_name.lower()} comment to PR #{pr.number}.",
                 )
 
-            self.call_from_thread(self.action_rescan)
+            self._rescan_row(v)
         except Exception as e:
             logger.error("Failed to mark ready: {}", e)
             self.call_from_thread(
@@ -613,6 +798,168 @@ class ConfirmationModal(ModalScreen[bool]):
             self.dismiss(True)
         else:
             self.dismiss(False)
+
+
+class PostDestinationModal(ModalScreen[str | None]):
+    CSS = """
+    PostDestinationModal {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.6);
+    }
+    #dest_container {
+        width: 60%;
+        height: auto;
+        background: $panel;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #dest_title {
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #dest_buttons {
+        align: center middle;
+    }
+    #dest_buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, kep: str, pr_num: int):
+        super().__init__()
+        self.kep = kep
+        self.pr_num = pr_num
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dest_container"):
+            yield Label(
+                f"Select Post Destination for {self.kep} / PR #{self.pr_num}:",
+                id="dest_title",
+            )
+            with Horizontal(id="dest_buttons"):
+                yield Button("PR Only", variant="primary", id="pr_btn")
+                yield Button("KEP Issue Only", variant="default", id="kep_btn")
+                yield Button("Both PR & KEP", variant="success", id="both_btn")
+                yield Button("Cancel", variant="error", id="cancel_btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "pr_btn":
+            self.dismiss("pr")
+        elif event.button.id == "kep_btn":
+            self.dismiss("kep")
+        elif event.button.id == "both_btn":
+            self.dismiss("both")
+        else:
+            self.dismiss(None)
+
+
+class SortModal(ModalScreen[list[tuple[str, bool]] | None]):
+    CSS = """
+    SortModal {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.6);
+    }
+    #sort_container {
+        width: 70%;
+        height: auto;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+    #sort_title {
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    .sort_row {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .sort_row Label {
+        width: 15;
+        padding: 1 0;
+    }
+    .sort_row Select {
+        width: 25;
+    }
+    #sort_buttons {
+        align: center middle;
+        margin-top: 1;
+    }
+    #sort_buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    COLS = ["Docs Freeze", "KEP", "PR State", "Labels", "Status", "Reminders", "Assignee"]
+
+    def __init__(self, current_specs: list[tuple[str, bool]]):
+        super().__init__()
+        self.current_specs = current_specs
+
+    def compose(self) -> ComposeResult:
+        p_col = self.current_specs[0][0] if self.current_specs else "Docs Freeze"
+        p_dir = "ASC" if self.current_specs and self.current_specs[0][1] else "DESC"
+        s_col = (
+            self.current_specs[1][0]
+            if len(self.current_specs) > 1
+            else "KEP"
+        )
+        s_dir = (
+            "ASC"
+            if len(self.current_specs) > 1 and self.current_specs[1][1]
+            else "DESC"
+        )
+
+        with Vertical(id="sort_container"):
+            yield Label("Multi-Column Sort Settings", id="sort_title")
+            with Horizontal(classes="sort_row"):
+                yield Label("Primary:")
+                yield Select(
+                    [(c, c) for c in self.COLS],
+                    value=p_col,
+                    id="p_col_select",
+                )
+                yield Select(
+                    [("Ascending", "ASC"), ("Descending", "DESC")],
+                    value=p_dir,
+                    id="p_dir_select",
+                )
+            with Horizontal(classes="sort_row"):
+                yield Label("Secondary:")
+                yield Select(
+                    [(c, c) for c in self.COLS],
+                    value=s_col,
+                    id="s_col_select",
+                )
+                yield Select(
+                    [("Ascending", "ASC"), ("Descending", "DESC")],
+                    value=s_dir,
+                    id="s_dir_select",
+                )
+            with Horizontal(id="sort_buttons"):
+                yield Button("Apply", variant="primary", id="apply_btn")
+                yield Button("Cancel", id="cancel_btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "apply_btn":
+            p_c = self.query_one("#p_col_select", Select).value
+            p_d = self.query_one("#p_dir_select", Select).value
+            s_c = self.query_one("#s_col_select", Select).value
+            s_d = self.query_one("#s_dir_select", Select).value
+
+            p_col_str = str(p_c) if p_c and p_c != Select.BLANK else "Docs Freeze"
+            s_col_str = str(s_c) if s_c and s_c != Select.BLANK else "KEP"
+            p_dir_bool = p_d == "ASC" if p_d and p_d != Select.BLANK else True
+            s_dir_bool = s_d == "ASC" if s_d and s_d != Select.BLANK else True
+
+            specs = [(p_col_str, p_dir_bool)]
+            if s_col_str != p_col_str:
+                specs.append((s_col_str, s_dir_bool))
+            self.dismiss(specs)
+        else:
+            self.dismiss(None)
 
 
 class HistoryModal(ModalScreen[None]):

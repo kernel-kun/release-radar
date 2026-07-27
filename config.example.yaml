@@ -44,3 +44,8 @@ deadline: placeholder_pr
 # Confirm against the v1.37 release schedule. Leave blank to disable a bound.
 cycle_start: "2026-05-01"
 cycle_end: "2026-08-31"
+
+# Deadline target dates formatted for message templates and checklists
+deadlines:
+  ready_for_review: "Tuesday 28th July 2026"
+  docs_freeze: "Wednesday 5th August 2026 (AoE) / Thursday 6th August 2026, 12:00 UTC"

@@ -1,4 +1,4 @@
-Hi @{pr_author} :wave:! v1.37 Docs team here
+Hi {pr_author} {kep_assignees} :wave:! v1.37 Docs team here
 
 We noticed that this Pull Request is currently in the **Open** state.
 

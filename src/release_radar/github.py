@@ -7,8 +7,10 @@ write the 'Docs PR' field. If missing, run:  gh auth refresh -s project
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import httpx
 from loguru import logger
@@ -20,6 +22,10 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 
 class MissingScopeError(RuntimeError):
     """Token lacks the Projects scope needed to read/write the board."""
+
+
+class RateLimitError(RuntimeError):
+    """GitHub API rate limit exceeded."""
 
 
 # --- queries (paste-ready, schema-verified) --------------------------------
@@ -107,6 +113,7 @@ _PR_FRAG = """__typename
     author { login }
     assignees(first: 10) { nodes { login } }
     repository { nameWithOwner }
+    labels(first: 100) { nodes { name } }
     comments(first: 100) {
       nodes {
         id
@@ -172,6 +179,12 @@ query ($owner: String!, $number: Int!) {
 _PR_NODE_Q = """
 query ($owner: String!, $repo: String!, $num: Int!) {
   repository(owner: $owner, name: $repo) { pullRequest(number: $num) { id } }
+}
+"""
+
+_ISSUE_NODE_Q = """
+query ($owner: String!, $repo: String!, $num: Int!) {
+  repository(owner: $owner, name: $repo) { issue(number: $num) { id } }
 }
 """
 
@@ -243,12 +256,36 @@ class GitHub:
         )
         r.raise_for_status()
         data = r.json()
+        reset_header = r.headers.get("x-ratelimit-reset")
+        reset_info = ""
+        if reset_header:
+            try:
+                ts = int(reset_header)
+                dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                dt_local = datetime.fromtimestamp(ts)
+                reset_info = (
+                    f" (Quota resets at {dt_local.strftime('%H:%M:%S')} local time / "
+                    f"{dt_utc.strftime('%H:%M:%S UTC')})"
+                )
+            except Exception:
+                pass
+
         if "errors" in data:
             if any(e.get("type") == "INSUFFICIENT_SCOPES" for e in data["errors"]):
                 raise MissingScopeError(
                     "GitHub token is missing the Projects scope. Run:\n"
                     "    gh auth refresh -s project -h github.com\n"
                     "('read:project' is enough for read-only; 'project' also allows board writes.)"
+                )
+            if any(
+                e.get("type") == "RATE_LIMITED"
+                or "rate limit" in e.get("message", "").lower()
+                for e in data["errors"]
+            ):
+                raw_msg = "; ".join(e.get("message", str(e)) for e in data["errors"])
+                raise RateLimitError(
+                    f"GitHub API rate limit exceeded: {raw_msg}{reset_info}\n"
+                    "Please wait for your quota to reset or check `gh api rate_limit`."
                 )
             msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
             raise RuntimeError(f"GraphQL error: {msgs}")
@@ -366,6 +403,10 @@ class GitHub:
         data = self.query(_PR_NODE_Q, owner=owner, repo=repo, num=num)
         return data["repository"]["pullRequest"]["id"]
 
+    def issue_node_id(self, owner: str, repo: str, num: int) -> str:
+        data = self.query(_ISSUE_NODE_Q, owner=owner, repo=repo, num=num)
+        return data["repository"]["issue"]["id"]
+
     def add_item(self, project_id: str, content_id: str) -> str:
         data = self.query(_ADD_ITEM_M, projectId=project_id, contentId=content_id)
         return data["addProjectV2ItemById"]["item"]["id"]
@@ -469,6 +510,7 @@ def _parse_pr(pr: dict) -> PRInfo:
 
     author = (pr.get("author") or {}).get("login", "")
     assignees = ",".join(u["login"] for u in pr.get("assignees", {}).get("nodes", []))
+    labels = [n["name"] for n in pr.get("labels", {}).get("nodes", []) if "name" in n]
     comments = []
     for c in pr.get("comments", {}).get("nodes", []):
         comments.append(
@@ -493,4 +535,5 @@ def _parse_pr(pr: dict) -> PRInfo:
         author=author,
         assignees=assignees,
         comments=comments,
+        labels=labels,
     )

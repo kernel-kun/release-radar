@@ -76,10 +76,43 @@ class PRInfo:
     author: str = ""
     assignees: str = ""
     comments: list[CommentInfo] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
 
     def acceptable(self, dest_branch: str) -> bool:
         # placeholder PR: open (draft or ready) against the dev branch. MERGED also fine.
         return self.base_ref == dest_branch and self.state in ("OPEN", "MERGED")
+
+    @property
+    def has_lgtm(self) -> bool:
+        return any(l.lower() == "lgtm" for l in self.labels)
+
+    @property
+    def has_approved(self) -> bool:
+        return any(l.lower() == "approved" for l in self.labels)
+
+    @property
+    def is_docs_freeze_ready(self) -> bool:
+        if self.state == "MERGED":
+            return True
+        if self.state == "OPEN" and not self.is_draft:
+            return self.has_lgtm and self.has_approved
+        return False
+
+    def is_docs_freeze_ready_for(self, dest_branch: str) -> bool:
+        if self.base_ref != dest_branch:
+            return False
+        return self.is_docs_freeze_ready
+
+    @property
+    def label_display(self) -> str:
+        if self.state == "MERGED":
+            return "—"
+        parts = []
+        if self.has_lgtm:
+            parts.append("LGTM")
+        if self.has_approved:
+            parts.append("APPROVED")
+        return " | ".join(parts) if parts else "none"
 
     def tracking_comments(self) -> list[CommentInfo]:
         return [c for c in self.comments if "<!-- release-radar:" in c.body]
@@ -126,10 +159,37 @@ class KepRow:
     board_docs_notes: str = ""  # raw 'Docs Notes' field value on the board
     kep_author: str = ""
     kep_assignees: str = ""
+    kep_body: str = ""  # issue description body
     item_id: str = ""  # ProjectV2Item id (needed for board writes)
     discovered_pr: PRInfo | None = None
+    discovered_prs: list[PRInfo] = field(default_factory=list)
     # PRs we saw but rejected (closed / wrong branch), for the warning column
     rejected_prs: list[PRInfo] = field(default_factory=list)
+
+    @property
+    def all_target_prs(self) -> list[PRInfo]:
+        if self.discovered_prs:
+            return self.discovered_prs
+        if self.discovered_pr:
+            return [self.discovered_pr]
+        return []
+
+    def get_docs_freeze_status(self, dest_branch: str = "") -> str:
+        prs = self.all_target_prs
+        if not prs:
+            return "At Risk for Docs Freeze"
+        for pr in prs:
+            if dest_branch:
+                if not pr.is_docs_freeze_ready_for(dest_branch):
+                    return "At Risk for Docs Freeze"
+            else:
+                if not pr.is_docs_freeze_ready:
+                    return "At Risk for Docs Freeze"
+        return "Tracked for Docs Freeze"
+
+    @property
+    def docs_freeze_status(self) -> str:
+        return self.get_docs_freeze_status()
 
 
 @dataclass
@@ -233,12 +293,14 @@ def evaluate_placeholder_pr(row: KepRow, dest_branch: str) -> Verdict:
 
 
 def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
-    """PR-Ready-for-Review deadline rule.
+    """PR-Ready-for-Review deadline rule extended with Docs Freeze secondary evaluation.
 
     Expected board notes format:
-    {color_dot} ({pr_state}) Reminder Sent - {count}
+    {color_dot} ({pr_state}) {count} Reminder Sent  OR  ✅ (Merged)
     """
-    pr = row.discovered_pr
+    prs = row.all_target_prs
+    pr = row.discovered_pr or (prs[0] if prs else None)
+    freeze_status = row.get_docs_freeze_status(dest_branch)
 
     if pr is None:
         if row.rejected_prs:
@@ -246,13 +308,13 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
             return Verdict(
                 row,
                 Status.BAD_PR,
-                detail=f"PR #{worst.number} exists but targets wrong branch/state",
+                detail=f"PR #{worst.number} exists but targets wrong branch/state ({freeze_status})",
                 action="Confirm target branch or retarget it.",
             )
         return Verdict(
             row,
             Status.NO_PR,
-            detail="no website PR linked from this KEP",
+            detail=f"no website PR linked from this KEP ({freeze_status})",
             action="Ping author to open a docs PR.",
         )
 
@@ -272,13 +334,18 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
                 color_dot = "🟢"
             else:
                 color_dot = "🟠"
-        expected = f"{color_dot} ({state_str}) {pr.reminder_count()} Reminder Sent"
+        ready_tag = "[Ready]" if pr.is_marked_ready() else "[WIP]"
+        expected = (
+            f"{color_dot} ({state_str}) {ready_tag} {pr.reminder_count()} Reminder Sent"
+        )
+
+    detail_suffix = f"[{freeze_status}]"
 
     if row.board_docs_notes != expected:
         return Verdict(
             row,
             Status.NEEDS_BOARD,
-            detail=f"PR #{pr.number} expected notes: '{expected}'; board Notes: '{row.board_docs_notes}'",
+            detail=f"PR #{pr.number} expected notes: '{expected}'; board Notes: '{row.board_docs_notes}' {detail_suffix}",
             action=f"Update board Docs Notes to '{expected}' (press 'u' then 'a')",
             suggested_docs_notes=expected,
         )
@@ -287,7 +354,7 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
         return Verdict(
             row,
             Status.MERGED,
-            detail=f"PR #{pr.number} is merged and board matches",
+            detail=f"PR #{pr.number} is merged and board matches {detail_suffix}",
             action="",
         )
 
@@ -295,15 +362,79 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
         return Verdict(
             row,
             Status.CLOSED,
-            detail=f"PR #{pr.number} is CLOSED (attention needed!)",
+            detail=f"PR #{pr.number} is CLOSED (attention needed!) {detail_suffix}",
             action="Replace with correct open/draft/merged PR on the board.",
         )
 
     return Verdict(
         row,
         Status.MEETS,
-        detail=f"PR #{pr.number} is on board with notes: '{expected}'",
+        detail=f"PR #{pr.number} is on board with notes: '{expected}' {detail_suffix}",
         action="",
+    )
+
+
+def format_mentions(raw: str) -> str:
+    """Format comma/space-separated logins into space-separated @login mentions.
+
+    Examples:
+      "user1, user2" -> "@user1 @user2"
+      "user1" -> "@user1"
+      "" -> "none"
+    """
+    if not raw or not raw.strip():
+        return "none"
+    logins = [
+        part.strip().lstrip("@")
+        for part in raw.replace(",", " ").split()
+        if part.strip()
+    ]
+    if not logins:
+        return "none"
+    return " ".join(f"@{u}" for u in logins)
+
+
+def render_docs_freeze_checklist(
+    row: KepRow,
+    dest_branch: str,
+    ready_deadline: str = "[Ready to review deadline]",
+    freeze_deadline: str = "[Docs Freeze deadline]",
+) -> str:
+    prs = row.all_target_prs
+    repo = prs[0].repo if prs else "kubernetes/website"
+    desc_prs = find_pr_numbers(row.kep_body, repo)
+
+    # Criterion 1: PR linked in KEP issue description
+    c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
+    # Criterion 2: Target branch
+    c2 = bool(prs) and all(p.base_ref == dest_branch for p in prs)
+    # Criterion 3: Ready for review (Merged OR (Open + not draft + marked ready))
+    c3 = bool(prs) and all(
+        p.state == "MERGED"
+        or (p.state == "OPEN" and not p.is_draft and p.is_marked_ready())
+        for p in prs
+    )
+    # Criterion 4: Merge ready by Docs Freeze (Merged OR (Open + not draft + LGTM + APPROVED))
+    c4 = bool(prs) and all(p.is_docs_freeze_ready for p in prs)
+
+    release_ver = dest_branch.removeprefix("dev-") if dest_branch.startswith("dev-") else dest_branch
+    status_str = row.docs_freeze_status
+    author_str = format_mentions(row.kep_author)
+    if author_str == "none":
+        author_str = "doc/KEP owners"
+
+    return (
+        f"Hello {author_str} 👋! v{release_ver} Docs team here,\n\n"
+        f"As we approach:\n"
+        f"- Ready to Review deadline: {ready_deadline}\n"
+        f"- Docs Freeze deadline: {freeze_deadline}\n\n"
+        f"Here's where this enhancement currently stands:\n"
+        f"- [{'x' if c1 else ' '}] The docs PR(s) to the `k/website` repo that are related to your enhancement are linked in the above issue description (for tracking purposes).\n"
+        f"- [{'x' if c2 else ' '}] The docs PR(s) is created against the dev-{release_ver} branch.\n"
+        f"- [{'x' if c3 else ' '}] The docs PR(s) are in Ready to Review state wherein they are updated with all the changes required and marked ready to review.\n"
+        f"- [{'x' if c4 else ' '}] The docs PR(s) are ready to be merged (they have `approved` and `lgtm` labels applied) by the Docs Freeze deadline.\n\n"
+        f"The status of this enhancement is marked as {status_str}.\n\n"
+        f"If you anticipate missing docs freeze, you can file an [exception request](https://github.com/kubernetes/sig-release/blob/master/releases/EXCEPTIONS.md) in advance."
     )
 
 
