@@ -184,6 +184,7 @@ def run_scan(
             board_docs_notes=item.docs_notes,
             kep_author=item.kep_author,
             kep_assignees=item.kep_assignees,
+            kep_body=item.body,
             item_id=item.item_id,
         )
         # 'No docs needed' on the board -> no PR is expected; skip discovery.

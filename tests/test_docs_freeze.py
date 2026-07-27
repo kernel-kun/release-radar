@@ -213,6 +213,7 @@ class TestDocsFreeze(unittest.TestCase):
             url="https://github.com/kubernetes/enhancements/issues/123",
             assignee="shadow",
             kep_author="kep_author_1",
+            kep_body="Docs PR: https://github.com/kubernetes/website/pull/100",
             board_docs_pr=pr.url,
             discovered_pr=pr,
             discovered_prs=[pr],

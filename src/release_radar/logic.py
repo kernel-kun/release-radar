@@ -159,6 +159,7 @@ class KepRow:
     board_docs_notes: str = ""  # raw 'Docs Notes' field value on the board
     kep_author: str = ""
     kep_assignees: str = ""
+    kep_body: str = ""  # issue description body
     item_id: str = ""  # ProjectV2Item id (needed for board writes)
     discovered_pr: PRInfo | None = None
     discovered_prs: list[PRInfo] = field(default_factory=list)
@@ -377,15 +378,17 @@ def render_docs_freeze_checklist(
     freeze_deadline: str = "[Docs Freeze deadline]",
 ) -> str:
     prs = row.all_target_prs
+    repo = prs[0].repo if prs else "kubernetes/website"
+    desc_prs = find_pr_numbers(row.kep_body, repo)
 
-    # Criterion 1: PR linked
-    c1 = bool(prs)
+    # Criterion 1: PR linked in KEP issue description
+    c1 = bool(desc_prs) or bool(prs)
     # Criterion 2: Target branch
-    c2 = c1 and all(p.base_ref == dest_branch for p in prs)
+    c2 = bool(prs) and all(p.base_ref == dest_branch for p in prs)
     # Criterion 3: Ready for review (Open or Merged, not Draft)
-    c3 = c1 and all(p.state in ("OPEN", "MERGED") and not p.is_draft for p in prs)
+    c3 = bool(prs) and all(p.state in ("OPEN", "MERGED") and not p.is_draft for p in prs)
     # Criterion 4: Merge ready by Docs Freeze (Merged OR (Open + not draft + LGTM + APPROVED))
-    c4 = c1 and all(p.is_docs_freeze_ready for p in prs)
+    c4 = bool(prs) and all(p.is_docs_freeze_ready for p in prs)
 
     release_ver = dest_branch.removeprefix("dev-") if dest_branch.startswith("dev-") else dest_branch
     status_str = row.docs_freeze_status
