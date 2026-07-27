@@ -150,6 +150,9 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     dummy_vars = {
         "pr_author": "@pr-author-username",
         "pr_assignees": "@shadow1 @shadow2",
+        "pr_url": "https://github.com/kubernetes/website/pull/100",
+        "pr_number": "100",
+        "pr_num": "100",
         "pr_status": "Draft",
         "kep_author": "@kep-author-username",
         "kep_assignees": "@shadow1 @shadow2",

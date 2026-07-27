@@ -520,6 +520,9 @@ class TrackerApp(App):
             variables = {
                 "pr_author": pr_author_mentions,
                 "pr_assignees": pr_assignees_mentions,
+                "pr_url": pr.url if pr else "",
+                "pr_number": pr.number if pr else "",
+                "pr_num": pr.number if pr else "",
                 "pr_status": "Draft" if pr.is_draft else "Ready for review",
                 "kep_author": kep_author_mentions,
                 "kep_assignees": kep_assignees_mentions,
