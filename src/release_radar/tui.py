@@ -872,13 +872,18 @@ class SortModal(ModalScreen[list[tuple[str, bool]] | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply_btn":
             p_c = self.query_one("#p_col_select", Select).value
-            p_d = self.query_one("#p_dir_select", Select).value == "ASC"
+            p_d = self.query_one("#p_dir_select", Select).value
             s_c = self.query_one("#s_col_select", Select).value
-            s_d = self.query_one("#s_dir_select", Select).value == "ASC"
+            s_d = self.query_one("#s_dir_select", Select).value
 
-            specs = [(str(p_c), p_d)]
-            if str(s_c) != str(p_c):
-                specs.append((str(s_c), s_d))
+            p_col_str = str(p_c) if p_c and p_c != Select.BLANK else "Docs Freeze"
+            s_col_str = str(s_c) if s_c and s_c != Select.BLANK else "KEP"
+            p_dir_bool = p_d == "ASC" if p_d and p_d != Select.BLANK else True
+            s_dir_bool = s_d == "ASC" if s_d and s_d != Select.BLANK else True
+
+            specs = [(p_col_str, p_dir_bool)]
+            if s_col_str != p_col_str:
+                specs.append((s_col_str, s_dir_bool))
             self.dismiss(specs)
         else:
             self.dismiss(None)

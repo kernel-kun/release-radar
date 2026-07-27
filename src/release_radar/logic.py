@@ -98,6 +98,11 @@ class PRInfo:
             return self.has_lgtm and self.has_approved
         return False
 
+    def is_docs_freeze_ready_for(self, dest_branch: str) -> bool:
+        if self.base_ref != dest_branch:
+            return False
+        return self.is_docs_freeze_ready
+
     @property
     def label_display(self) -> str:
         if self.state == "MERGED":
@@ -168,15 +173,22 @@ class KepRow:
             return [self.discovered_pr]
         return []
 
-    @property
-    def docs_freeze_status(self) -> str:
+    def get_docs_freeze_status(self, dest_branch: str = "") -> str:
         prs = self.all_target_prs
         if not prs:
             return "At Risk for Docs Freeze"
         for pr in prs:
-            if not pr.is_docs_freeze_ready:
-                return "At Risk for Docs Freeze"
+            if dest_branch:
+                if not pr.is_docs_freeze_ready_for(dest_branch):
+                    return "At Risk for Docs Freeze"
+            else:
+                if not pr.is_docs_freeze_ready:
+                    return "At Risk for Docs Freeze"
         return "Tracked for Docs Freeze"
+
+    @property
+    def docs_freeze_status(self) -> str:
+        return self.get_docs_freeze_status()
 
 
 @dataclass
@@ -287,7 +299,7 @@ def evaluate_pr_ready_for_review(row: KepRow, dest_branch: str) -> Verdict:
     """
     prs = row.all_target_prs
     pr = row.discovered_pr or (prs[0] if prs else None)
-    freeze_status = row.docs_freeze_status
+    freeze_status = row.get_docs_freeze_status(dest_branch)
 
     if pr is None:
         if row.rejected_prs:
