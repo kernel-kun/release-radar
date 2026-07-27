@@ -513,6 +513,7 @@ class TrackerApp(App):
                 if self.cfg.dest_branch.startswith("dev-")
                 else self.cfg.dest_branch
             )
+            prs = v.row.all_target_prs
             repo = prs[0].repo if prs else "kubernetes/website"
             desc_prs = find_pr_numbers(v.row.kep_body, repo)
             c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
