@@ -214,7 +214,7 @@ class TestDocsFreeze(unittest.TestCase):
         v = evaluate_pr_ready_for_review(row, self.dest_branch)
         self.assertEqual(v.status, Status.NEEDS_BOARD)
         # expected board notes for un-marked ready open PR with 0 reminders
-        self.assertEqual(v.suggested_docs_notes, "🟠 (Open) 0 Reminder Sent")
+        self.assertEqual(v.suggested_docs_notes, "🟠 (Open) [WIP] 0 Reminder Sent")
 
     def test_reminder_detection_and_multiple_reminders(self):
         comment1 = CommentInfo(id="c1", body="Reminder 1\n<!-- release-radar: {\"reminder_number\": 1, \"ready_for_review\": false} -->", created_at="2026-07-20", updated_at="2026-07-20", author="bot")

@@ -32,7 +32,7 @@ Uses GitHub comments to offload tracking state invisibly using tracking comments
 
 Compares the state against the board's `Docs Notes` field and suggests writebacks:
 - For Merged PRs: `✅ (Merged)`
-- For Draft, Closed, or Open PRs: `{color_dot} ({pr_state}) {count} Reminder Sent`
+- For Draft, Closed, or Open PRs: `{color_dot} ({pr_state}) [{tag}] {count} Reminder Sent`
 
 Where:
 - **`{color_dot}`** is:
@@ -40,6 +40,7 @@ Where:
   - `🟠` for Open and not marked ready
   - `🔴` for Draft or Closed
 - **`{pr_state}`** is: `Closed`, `Draft`, or `Open`
+- **`[{tag}]`** is: `[Ready]` if marked ready via tracking comment metadata (`ready_for_review: true`), else `[WIP]`
 - **`{count}`** is the number of reminder comments sent to the author.
 
 ---
