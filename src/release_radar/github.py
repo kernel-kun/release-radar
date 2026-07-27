@@ -266,10 +266,23 @@ class GitHub:
                 or "rate limit" in e.get("message", "").lower()
                 for e in data["errors"]
             ):
-                msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
+                raw_msg = "; ".join(e.get("message", str(e)) for e in data["errors"])
+                formatted_msg = raw_msg
+                m = re.search(r"\b(1\d{9})\b", raw_msg)
+                if m:
+                    try:
+                        ts = int(m.group(1))
+                        dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                        dt_local = datetime.fromtimestamp(ts)
+                        formatted_msg = (
+                            f"{raw_msg} (Quota resets at {dt_local.strftime('%H:%M:%S')} local time / "
+                            f"{dt_utc.strftime('%H:%M:%S UTC')})"
+                        )
+                    except Exception:
+                        pass
                 raise RateLimitError(
-                    f"GitHub API rate limit exceeded: {msgs}\n"
-                    "Please wait for your GitHub rate limit quota to reset, or check status via `gh api rate_limit`."
+                    f"GitHub API rate limit exceeded: {formatted_msg}\n"
+                    "Please wait for your quota to reset or check `gh api rate_limit`."
                 )
             msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
             raise RuntimeError(f"GraphQL error: {msgs}")
