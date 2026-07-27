@@ -225,7 +225,20 @@ class TestDocsFreeze(unittest.TestCase):
         self.assertFalse(pr.is_marked_ready())
 
     def test_checklist_rendering(self):
-        pr = PRInfo(state="OPEN", is_draft=False, labels=["lgtm", "approved"], **self.base_pr_args)
+        ready_comment = CommentInfo(
+            id="c1",
+            body="Tracking\n<!-- release-radar: {\"reminder_number\": 1, \"ready_for_review\": true} -->",
+            created_at="2026-07-20",
+            updated_at="2026-07-20",
+            author="bot",
+        )
+        pr = PRInfo(
+            state="OPEN",
+            is_draft=False,
+            labels=["lgtm", "approved"],
+            comments=[ready_comment],
+            **self.base_pr_args,
+        )
         row = KepRow(
             kep="kubernetes/enhancements#123",
             title="Sample KEP",

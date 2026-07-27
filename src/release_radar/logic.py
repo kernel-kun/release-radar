@@ -408,8 +408,12 @@ def render_docs_freeze_checklist(
     c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
     # Criterion 2: Target branch
     c2 = bool(prs) and all(p.base_ref == dest_branch for p in prs)
-    # Criterion 3: Ready for review (Open or Merged, not Draft)
-    c3 = bool(prs) and all(p.state in ("OPEN", "MERGED") and not p.is_draft for p in prs)
+    # Criterion 3: Ready for review (Merged OR (Open + not draft + marked ready))
+    c3 = bool(prs) and all(
+        p.state == "MERGED"
+        or (p.state == "OPEN" and not p.is_draft and p.is_marked_ready())
+        for p in prs
+    )
     # Criterion 4: Merge ready by Docs Freeze (Merged OR (Open + not draft + LGTM + APPROVED))
     c4 = bool(prs) and all(p.is_docs_freeze_ready for p in prs)
 

@@ -29,7 +29,15 @@ from textual.widgets import Button, DataTable, Header, Label, Select, Static
 
 from .config import Config, State
 from .github import GitHub
-from .logic import CommentInfo, PRInfo, Status, Verdict, evaluate, format_mentions
+from .logic import (
+    CommentInfo,
+    PRInfo,
+    Status,
+    Verdict,
+    evaluate,
+    find_pr_numbers,
+    format_mentions,
+)
 from .scan import _hydrate, run_scan
 from .writeback import apply_writes
 
@@ -505,11 +513,16 @@ class TrackerApp(App):
                 if self.cfg.dest_branch.startswith("dev-")
                 else self.cfg.dest_branch
             )
-            prs = v.row.all_target_prs
-            c1 = bool(prs)
-            c2 = c1 and all(p.base_ref == self.cfg.dest_branch for p in prs)
-            c3 = c1 and all(p.state in ("OPEN", "MERGED") and not p.is_draft for p in prs)
-            c4 = c1 and all(p.is_docs_freeze_ready for p in prs)
+            repo = prs[0].repo if prs else "kubernetes/website"
+            desc_prs = find_pr_numbers(v.row.kep_body, repo)
+            c1 = bool(desc_prs) and (not prs or any(p.number in desc_prs for p in prs))
+            c2 = bool(prs) and all(p.base_ref == self.cfg.dest_branch for p in prs)
+            c3 = bool(prs) and all(
+                p.state == "MERGED"
+                or (p.state == "OPEN" and not p.is_draft and p.is_marked_ready())
+                for p in prs
+            )
+            c4 = bool(prs) and all(p.is_docs_freeze_ready for p in prs)
 
             pr_author_mentions = format_mentions(pr.author if pr else "")
             pr_assignees_mentions = format_mentions(pr.assignees if pr else "")
