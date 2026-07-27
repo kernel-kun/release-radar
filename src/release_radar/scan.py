@@ -67,7 +67,8 @@ def _discover_pr_for(
 ) -> tuple[PRInfo | None, list[PRInfo], list[PRInfo]]:
     """Find website PR(s) for a KEP item."""
     if cfg.deadline == "pr_ready_for_review":
-        # Strictly assume the Board is the source of truth, looking only at the board's Docs PR field.
+        # The GitHub Project Board is the absolute source of truth.
+        # Only evaluate PRs tracked in the board's 'Docs PR' field — no timeline, body, or comment discovery.
         nums = find_pr_numbers(item.docs_pr, cfg.website_repo)
         prs = []
         for num in nums:
