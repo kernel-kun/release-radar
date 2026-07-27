@@ -83,7 +83,9 @@ def _report(cfg: Config, state: State) -> int:
     return 1 if actionable else 0
 
 
-def select_template(template_arg: str | None) -> tuple[Path, str]:
+def select_template(
+    template_arg: str | None, cfg: Config | None = None
+) -> tuple[Path, str]:
     templates_dir = Path("templates")
     templates_dir.mkdir(exist_ok=True)
 
@@ -94,7 +96,7 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
         default_dir.mkdir(exist_ok=True)
         default_template = default_dir / "docs_freeze_reminder.md"
         default_template.write_text(
-            "Hello {doc/KEP owners} 👋! {release_version} Docs team here,\n\n"
+            "Hello {doc/KEP owners} 👋! v{release_version} Docs team here,\n\n"
             "As we approach:\n"
             "- Ready to Review deadline: {ready_review_deadline}\n"
             "- Docs Freeze deadline: {docs_freeze_deadline}\n\n"
@@ -147,6 +149,14 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
     selected = templates[idx]
     raw_content = selected.read_text()
 
+    release_ver = (
+        cfg.dest_branch.removeprefix("dev-")
+        if cfg and cfg.dest_branch.startswith("dev-")
+        else (cfg.dest_branch if cfg else "1.37")
+    )
+    ready_deadline = cfg.ready_review_deadline if cfg else "Tuesday 28th July 2026"
+    freeze_deadline = cfg.docs_freeze_deadline if cfg else "Wednesday 5th August 2026"
+
     dummy_vars = {
         "pr_author": "@pr-author-username",
         "pr_assignees": "@shadow1 @shadow2",
@@ -159,23 +169,24 @@ def select_template(template_arg: str | None) -> tuple[Path, str]:
         "kep_title": "Sample KEP Title",
         "kep_url": "https://github.com/kubernetes/enhancements/issues/123",
         "doc/KEP owners": "@pr-author-username",
-        "release_version": "1.37",
-        "ready_review_deadline": "Tuesday 28th July 2026",
-        "ready_for_review_deadline": "Tuesday 28th July 2026",
-        "ready_for_review": "Tuesday 28th July 2026",
-        "ready_to_review_deadline": "Tuesday 28th July 2026",
-        "ready_to_review": "Tuesday 28th July 2026",
-        "ready_deadline": "Tuesday 28th July 2026",
-        "Ready to review deadline": "Tuesday 28th July 2026",
-        "docs_freeze_deadline": "Wednesday 5th August 2026",
-        "docs_freeze": "Wednesday 5th August 2026",
-        "freeze_deadline": "Wednesday 5th August 2026",
-        "Docs Freeze deadline": "Wednesday 5th August 2026",
+        "release_version": release_ver,
+        "ready_review_deadline": ready_deadline,
+        "ready_for_review_deadline": ready_deadline,
+        "ready_for_review": ready_deadline,
+        "ready_to_review_deadline": ready_deadline,
+        "ready_to_review": ready_deadline,
+        "ready_deadline": ready_deadline,
+        "Ready to review deadline": ready_deadline,
+        "docs_freeze_deadline": freeze_deadline,
+        "docs_freeze": freeze_deadline,
+        "freeze_deadline": freeze_deadline,
+        "Docs Freeze deadline": freeze_deadline,
         "crit1": "x",
         "crit2": "x",
         "crit3": " ",
         "crit4": " ",
         "docs_freeze_status": "At Risk for Docs Freeze",
+        "future-release": f"v{release_ver}",
     }
 
     class SafeFormatter(dict):
@@ -245,7 +256,7 @@ def main() -> None:
 
     template_content = ""
     if not args.no_tui and cfg.deadline == "pr_ready_for_review":
-        _, template_content = select_template(args.template)
+        _, template_content = select_template(args.template, cfg)
 
     try:
         if args.no_tui:
