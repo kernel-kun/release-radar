@@ -256,6 +256,20 @@ class GitHub:
         )
         r.raise_for_status()
         data = r.json()
+        reset_header = r.headers.get("x-ratelimit-reset")
+        reset_info = ""
+        if reset_header:
+            try:
+                ts = int(reset_header)
+                dt_utc = datetime.fromtimestamp(ts, timezone.utc)
+                dt_local = datetime.fromtimestamp(ts)
+                reset_info = (
+                    f" (Quota resets at {dt_local.strftime('%H:%M:%S')} local time / "
+                    f"{dt_utc.strftime('%H:%M:%S UTC')})"
+                )
+            except Exception:
+                pass
+
         if "errors" in data:
             if any(e.get("type") == "INSUFFICIENT_SCOPES" for e in data["errors"]):
                 raise MissingScopeError(
@@ -269,21 +283,8 @@ class GitHub:
                 for e in data["errors"]
             ):
                 raw_msg = "; ".join(e.get("message", str(e)) for e in data["errors"])
-                formatted_msg = raw_msg
-                m = re.search(r"\b(1\d{9})\b", raw_msg)
-                if m:
-                    try:
-                        ts = int(m.group(1))
-                        dt_utc = datetime.fromtimestamp(ts, timezone.utc)
-                        dt_local = datetime.fromtimestamp(ts)
-                        formatted_msg = (
-                            f"{raw_msg} (Quota resets at {dt_local.strftime('%H:%M:%S')} local time / "
-                            f"{dt_utc.strftime('%H:%M:%S UTC')})"
-                        )
-                    except Exception:
-                        pass
                 raise RateLimitError(
-                    f"GitHub API rate limit exceeded: {formatted_msg}\n"
+                    f"GitHub API rate limit exceeded: {raw_msg}{reset_info}\n"
                     "Please wait for your quota to reset or check `gh api rate_limit`."
                 )
             msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
