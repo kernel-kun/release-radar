@@ -1,8 +1,10 @@
-Hello {doc/KEP owners} 👋! v{release_version} Docs team here,
+Hello {pr_author} 👋! v{release_version} Docs team here,
 
 As we approach:
 - Ready to Review deadline: {ready_review_deadline}
 - Docs Freeze deadline: {docs_freeze_deadline}
+
+Linked Docs PR: {pr_url}
 
 Here's where this enhancement currently stands:
 - [{crit1}] The docs PR(s) to the `k/website` repo that are related to your enhancement are linked in the above issue description (for tracking purposes).

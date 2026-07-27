@@ -30,7 +30,7 @@ from textual.widgets import Button, DataTable, Header, Label, Select, Static
 from .config import Config, State
 from .github import GitHub
 from .logic import CommentInfo, PRInfo, Status, Verdict, evaluate, format_mentions
-from .scan import run_scan
+from .scan import _hydrate, run_scan
 from .writeback import apply_writes
 
 _STATUS_STYLE = {
@@ -225,9 +225,18 @@ class TrackerApp(App):
         self.run_worker(self._scan, thread=True, exclusive=True)
 
     def _scan(self) -> None:
-        verdicts = run_scan(self.cfg, self.state, self.gh)
-        self.state.save()
-        self.call_from_thread(self._populate, verdicts)
+        try:
+            verdicts = run_scan(self.cfg, self.state, self.gh)
+            self.state.save()
+            self.call_from_thread(self._populate, verdicts)
+        except Exception as e:
+            self.call_from_thread(self._handle_scan_error, str(e))
+
+    def _handle_scan_error(self, err_msg: str) -> None:
+        self.notify(f"Scan Error: {err_msg}", severity="error", timeout=10)
+        self.query_one("#summary", Static).update(
+            f"[bold red]Scan Failed:[/] {err_msg}"
+        )
 
     def _populate(self, verdicts: list[Verdict]) -> None:
         # hide dismissed rows
@@ -600,12 +609,35 @@ class TrackerApp(App):
             self.call_from_thread(
                 self.notify, f"Posted Docs Freeze reminder to {posted_names}"
             )
-            self.call_from_thread(self.action_rescan)
+            self._rescan_row(v)
         except Exception as e:
             logger.error("Failed to send message: {}", e)
             self.call_from_thread(
                 self.notify, f"Failed to send message: {e}", severity="error"
             )
+
+    def _rescan_row(self, v: Verdict) -> None:
+        """Re-scan and re-evaluate only the single row operated on, preserving API rate limit."""
+        try:
+            prs = []
+            for pr in v.row.all_target_prs:
+                prs.extend(_hydrate(self.gh, self.cfg, pr.number))
+            if prs:
+                v.row.discovered_pr = prs[0]
+                v.row.discovered_prs = prs
+
+            new_v = evaluate(self.cfg, v.row)
+
+            for i, item in enumerate(self.verdicts):
+                if item.row.kep == v.row.kep:
+                    self.verdicts[i] = new_v
+                    break
+
+            self.state.save()
+            self.call_from_thread(self._populate, self.verdicts)
+        except Exception as e:
+            logger.error("Failed single-row rescan for {}: {}", v.row.kep, e)
+            self.call_from_thread(self.action_rescan)
 
     def action_view_history(self) -> None:
         if self.cfg.deadline != "pr_ready_for_review":
@@ -699,7 +731,7 @@ class TrackerApp(App):
                     f"Posted {action_name.lower()} comment to PR #{pr.number}.",
                 )
 
-            self.call_from_thread(self.action_rescan)
+            self._rescan_row(v)
         except Exception as e:
             logger.error("Failed to mark ready: {}", e)
             self.call_from_thread(

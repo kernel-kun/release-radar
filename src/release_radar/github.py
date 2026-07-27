@@ -22,6 +22,10 @@ class MissingScopeError(RuntimeError):
     """Token lacks the Projects scope needed to read/write the board."""
 
 
+class RateLimitError(RuntimeError):
+    """GitHub API rate limit exceeded."""
+
+
 # --- queries (paste-ready, schema-verified) --------------------------------
 
 _FIELDS_Q = """
@@ -256,6 +260,16 @@ class GitHub:
                     "GitHub token is missing the Projects scope. Run:\n"
                     "    gh auth refresh -s project -h github.com\n"
                     "('read:project' is enough for read-only; 'project' also allows board writes.)"
+                )
+            if any(
+                e.get("type") == "RATE_LIMITED"
+                or "rate limit" in e.get("message", "").lower()
+                for e in data["errors"]
+            ):
+                msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
+                raise RateLimitError(
+                    f"GitHub API rate limit exceeded: {msgs}\n"
+                    "Please wait for your GitHub rate limit quota to reset, or check status via `gh api rate_limit`."
                 )
             msgs = "; ".join(e.get("message", str(e)) for e in data["errors"])
             raise RuntimeError(f"GraphQL error: {msgs}")
